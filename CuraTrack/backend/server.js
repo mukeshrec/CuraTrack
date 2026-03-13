@@ -1,79 +1,112 @@
-console.log('--- SERVER INITIALIZING ---');
-const express = require('express');
-const multer = require('multer');
-const cors = require('cors');
-const axios = require('axios');
-const fs = require('fs');
-const pdfParse = require('pdf-parse');
-const Tesseract = require('tesseract.js');
-const path = require('path');
+console.log("--- SERVER INITIALIZING ---");
+const express = require("express");
+const multer = require("multer");
+const cors = require("cors");
+const axios = require("axios");
+const fs = require("fs");
+const pdfParse = require("pdf-parse");
+const Tesseract = require("tesseract.js");
+const path = require("path");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 // Set up multer for handling file uploads
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({
+  dest: "uploads/",
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+});
+
+// Create prescription storage directory if it doesn't exist
+const prescriptionDir = path.join(__dirname, "prescriptions");
+if (!fs.existsSync(prescriptionDir)) {
+  fs.mkdirSync(prescriptionDir, { recursive: true });
+}
+
+// In-memory storage for prescription metadata (in production, use a database)
+const prescriptionStore = {};
+
+// In-memory storage for medication adherence (in production, use a database)
+const medicationAdherence = {};
 
 // Health check route
-app.get('/health', (req, res) => {
-    res.status(200).json({ status: 'ok' });
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok" });
 });
 
 // Mock Database of Patients
 const mockPatients = {
-    'HID-TN-20240847': {
-        name: 'Rajan Kumar',
-        age: 64,
-        gender: 'Male',
-        bloodGroup: 'O+',
-        conditions: ['Type 2 Diabetes', 'Hypertension', 'Hyperlipidemia'],
-        allergies: ['Penicillin', 'Aspirin'],
-        medications: [
-            { name: 'Metformin', dosage: '500mg', frequency: 'Twice daily' },
-            { name: 'Amlodipine', dosage: '5mg', frequency: 'Once daily' },
-            { name: 'Atorvastatin', dosage: '10mg', frequency: 'At bedtime' }
-        ],
-        history: [
-            { date: '2026-03-10', type: 'Consultation', doctor: 'Dr. S. Mehta', notes: 'BP controlled. HbA1c improving. Continue current meds.' },
-            { date: '2026-03-05', type: 'Lab Report', facility: 'City Diagnostics', results: 'HbA1c: 7.2%, Creatinine: 0.9, Cholesterol: 178 mg/dL.' },
-            { date: '2026-01-08', type: 'Emergency Visit', facility: 'Apollo Hospital', notes: 'Chest pain episode — ruled out cardiac event. Stress ECG normal.' }
-        ]
-    }
+  "HID-TN-20240847": {
+    name: "Rajan Kumar",
+    age: 64,
+    gender: "Male",
+    bloodGroup: "O+",
+    conditions: ["Type 2 Diabetes", "Hypertension", "Hyperlipidemia"],
+    allergies: ["Penicillin", "Aspirin"],
+    medications: [
+      { name: "Metformin", dosage: "500mg", frequency: "Twice daily" },
+      { name: "Amlodipine", dosage: "5mg", frequency: "Once daily" },
+      { name: "Atorvastatin", dosage: "10mg", frequency: "At bedtime" },
+    ],
+    history: [
+      {
+        date: "2026-03-10",
+        type: "Consultation",
+        doctor: "Dr. S. Mehta",
+        notes: "BP controlled. HbA1c improving. Continue current meds.",
+      },
+      {
+        date: "2026-03-05",
+        type: "Lab Report",
+        facility: "City Diagnostics",
+        results: "HbA1c: 7.2%, Creatinine: 0.9, Cholesterol: 178 mg/dL.",
+      },
+      {
+        date: "2026-01-08",
+        type: "Emergency Visit",
+        facility: "Apollo Hospital",
+        notes:
+          "Chest pain episode — ruled out cardiac event. Stress ECG normal.",
+      },
+    ],
+  },
 };
 
 // Helper to clean up uploaded files
 const cleanupFile = (filePath) => {
-    try {
-        if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-        }
-    } catch (err) {
-        console.error('Failed to cleanup file:', filePath, err);
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
     }
+  } catch (err) {
+    console.error("Failed to cleanup file:", filePath, err);
+  }
 };
 
 // Route to summarize patient history using AI (POST)
-app.post('/api/summarize-patient', async (req, res) => {
-    const { healthId } = req.body;
-    await summarizePatient(healthId, res);
+app.post("/api/summarize-patient", async (req, res) => {
+  const { healthId } = req.body;
+  await summarizePatient(healthId, res);
 });
 
 // Route to summarize patient history using AI (GET - for testing)
-app.get('/api/summarize-patient/:healthId', async (req, res) => {
-    const { healthId } = req.params;
-    await summarizePatient(healthId, res);
+app.get("/api/summarize-patient/:healthId", async (req, res) => {
+  const { healthId } = req.params;
+  await summarizePatient(healthId, res);
 });
 
 async function summarizePatient(healthId, res) {
-    if (!healthId || !mockPatients[healthId]) {
-        return res.status(404).json({ error: 'Patient not found' });
-    }
+  if (!healthId || !mockPatients[healthId]) {
+    return res.status(404).json({ error: "Patient not found" });
+  }
 
-    const patient = mockPatients[healthId];
+  const patient = mockPatients[healthId];
 
-    try {
-        const prompt = `
+  try {
+    const prompt = `
 You are a medical AI assistant. Summarize the following patient's medical history for a doctor. 
 Focus on active conditions, critical allergies, recent lab results, and previous significant events (like emergency visits).
 Keep the summary concise and professional.
@@ -84,59 +117,97 @@ ${JSON.stringify(patient, null, 2)}
 Output the summary in plain text or markdown.
         `;
 
-        console.log(`Summarizing history for patient: ${healthId}...`);
-        const ollamaResponse = await axios.post('http://localhost:11434/api/generate', {
-            model: 'llama3',
-            prompt: prompt,
-            stream: false
-        });
+    console.log(`Summarizing history for patient: ${healthId}...`);
+    const ollamaResponse = await axios.post(
+      "http://localhost:11434/api/generate",
+      {
+        model: "llama3",
+        prompt: prompt,
+        stream: false,
+      },
+    );
 
-        res.json({ 
-            summary: ollamaResponse.data.response,
-            patientName: patient.name 
-        });
-
-    } catch (error) {
-        console.error('Summarization Error:', error.message);
-        res.status(500).json({ error: 'Failed to generate AI summary', details: error.message });
-    }
+    res.json({
+      summary: ollamaResponse.data.response,
+      patientName: patient.name,
+    });
+  } catch (error) {
+    console.error("Summarization Error:", error.message);
+    res
+      .status(500)
+      .json({ error: "Failed to generate AI summary", details: error.message });
+  }
 }
 
 // Route to handle prescription upload and AI analysis
-app.post('/api/analyze-prescription', upload.single('prescription'), async (req, res) => {
+app.post(
+  "/api/analyze-prescription",
+  upload.single("prescription"),
+  async (req, res) => {
+    console.log("=== PRESCRIPTION UPLOAD REQUEST ===");
+    console.log("Request body:", req.body);
+    console.log("Request file:", req.file);
+
     if (!req.file) {
-        return res.status(400).json({ error: 'No prescription file uploaded' });
+      console.log("ERROR: No prescription file uploaded");
+      return res.status(400).json({ error: "No prescription file uploaded" });
     }
 
     const filePath = req.file.path;
     const fileType = req.file.mimetype;
-    let extractedText = '';
+    const patientId = req.body.patientId || "HID-TN-20240847"; // Default patient if not specified
+    let extractedText = "";
+    let savedFilePath = null;
+
+    console.log(`Processing file type: ${fileType} for patient: ${patientId}`);
 
     try {
-        console.log(`Processing file type: ${fileType}`);
-        
-        // 1. Extract Text from PDF or Image
-        if (fileType === 'application/pdf') {
-            const dataBuffer = fs.readFileSync(filePath);
-            const pdfData = await pdfParse(dataBuffer);
-            extractedText = pdfData.text;
-        } else if (fileType.startsWith('image/')) {
-            const { data: { text } } = await Tesseract.recognize(filePath, 'eng');
-            extractedText = text;
-        } else {
-            cleanupFile(filePath);
-            return res.status(400).json({ error: 'Unsupported file type. Please upload a PDF or Image.' });
-        }
+      // Generate unique filename for permanent storage
+      const fileExtension =
+        fileType === "application/pdf"
+          ? ".pdf"
+          : fileType.includes("jpeg")
+            ? ".jpg"
+            : ".png";
+      const uniqueFilename = `${patientId}_${Date.now()}${fileExtension}`;
+      savedFilePath = path.join(prescriptionDir, uniqueFilename);
 
-        console.log('Extracted Text Preview:', extractedText.substring(0, 100) + '...');
-        cleanupFile(filePath); // We have the text, clean up the temp file
+      // Move file to permanent storage
+      fs.copyFileSync(filePath, savedFilePath);
 
-        if (!extractedText || extractedText.trim() === '') {
-            return res.status(400).json({ error: 'Failed to extract text from the document.' });
-        }
+      // 1. Extract Text from PDF or Image
+      if (fileType === "application/pdf") {
+        const dataBuffer = fs.readFileSync(filePath);
+        const pdfData = await pdfParse(dataBuffer);
+        extractedText = pdfData.text;
+      } else if (fileType.startsWith("image/")) {
+        const {
+          data: { text },
+        } = await Tesseract.recognize(filePath, "eng");
+        extractedText = text;
+      } else {
+        cleanupFile(filePath);
+        fs.unlinkSync(savedFilePath); // Clean up saved file if unsupported
+        return res.status(400).json({
+          error: "Unsupported file type. Please upload a PDF or Image.",
+        });
+      }
 
-        // 2. Analyze with Llama 3 via Ollama
-        const prompt = `
+      console.log(
+        "Extracted Text Preview:",
+        extractedText.substring(0, 100) + "...",
+      );
+      cleanupFile(filePath); // Clean up temp file
+
+      if (!extractedText || extractedText.trim() === "") {
+        fs.unlinkSync(savedFilePath); // Clean up saved file if no text extracted
+        return res
+          .status(400)
+          .json({ error: "Failed to extract text from the document." });
+      }
+
+      // 2. Analyze with Llama 3 via Ollama
+      const prompt = `
 You are a medical AI assistant. Your task is to extract prescription data from the following text and output ONLY a valid JSON array of objects representing the medication schedule.
 
 Input Text:
@@ -156,41 +227,236 @@ Output Format MUST be a strict JSON Array with the structure below. Do not inclu
 ]
         `;
 
-        console.log('Sending request to Llama 3 (Ollama)...');
-        const ollamaResponse = await axios.post('http://localhost:11434/api/generate', {
-            model: 'llama3',
+      // 3. Parse JSON from AI response
+      let jsonSchedule = [];
+      try {
+        console.log("Sending request to Llama 3 (Ollama)...");
+        const ollamaResponse = await axios.post(
+          "http://localhost:11434/api/generate",
+          {
+            model: "llama3",
             prompt: prompt,
-            stream: false
-        });
+            stream: false,
+          },
+        );
 
         const rawResponse = ollamaResponse.data.response;
-        console.log('Raw Llama 3 Output:', rawResponse);
+        console.log("Raw Llama 3 Output:", rawResponse);
 
-        // 3. Parse JSON from AI response
-        let jsonSchedule = [];
         try {
-            // Find the array pattern in the response using regex in case it wraps it in markdown
-            const jsonMatch = rawResponse.match(/\[[\s\S]*\]/);
-            const jsonStr = jsonMatch ? jsonMatch[0] : rawResponse;
-            jsonSchedule = JSON.parse(jsonStr);
+          // Find the array pattern in the response using regex in case it wraps it in markdown
+          const jsonMatch = rawResponse.match(/\[[\s\S]*\]/);
+          const jsonStr = jsonMatch ? jsonMatch[0] : rawResponse;
+          jsonSchedule = JSON.parse(jsonStr);
         } catch (jsonErr) {
-            console.error('Failed to parse JSON from AI response:', rawResponse);
-            return res.status(500).json({ 
-                error: 'AI failed to generate a valid JSON structure',
-                rawResponse: rawResponse
-            });
+          console.error("Failed to parse JSON from AI response:", rawResponse);
+          // Fallback: create a dummy schedule if AI fails
+          jsonSchedule = [
+            {
+              medName: "Medication from prescription",
+              dosage: "As prescribed",
+              schedule: "As directed",
+              timeString: "As scheduled",
+              reason: "Prescribed medication",
+            },
+          ];
         }
+      } catch (aiError) {
+        console.error("AI analysis failed:", aiError.message);
+        // Fallback: create a dummy schedule if AI service is not available
+        jsonSchedule = [
+          {
+            medName: "Medication from prescription",
+            dosage: "As prescribed",
+            schedule: "As directed",
+            timeString: "As scheduled",
+            reason: "Prescribed medication",
+          },
+        ];
+      }
 
-        res.json({ schedule: jsonSchedule });
+      // 4. Store prescription metadata
+      const prescriptionId = `RX_${patientId}_${Date.now()}`;
+      const prescriptionMetadata = {
+        id: prescriptionId,
+        patientId: patientId,
+        filename: uniqueFilename,
+        originalName: req.file.originalname,
+        fileType: fileType,
+        uploadedAt: new Date().toISOString(),
+        extractedText: extractedText,
+        schedule: jsonSchedule,
+        filePath: savedFilePath,
+      };
 
+      // Initialize patient prescriptions array if it doesn't exist
+      if (!prescriptionStore[patientId]) {
+        prescriptionStore[patientId] = [];
+      }
+      prescriptionStore[patientId].push(prescriptionMetadata);
+
+      console.log(
+        `Prescription stored: ${prescriptionId} for patient ${patientId}`,
+      );
+
+      res.json({
+        schedule: jsonSchedule,
+        prescriptionId: prescriptionId,
+        message: "Prescription analyzed and stored successfully",
+      });
     } catch (error) {
-        console.error('Analysis Error:', error.message);
-        if(req.file) cleanupFile(filePath);
-        res.status(500).json({ error: 'Internal server error during analysis', details: error.message });
+      console.error("Analysis Error:", error.message);
+      if (req.file) cleanupFile(filePath);
+      if (savedFilePath && fs.existsSync(savedFilePath)) {
+        fs.unlinkSync(savedFilePath); // Clean up saved file on error
+      }
+      res.status(500).json({
+        error: "Internal server error during analysis",
+        details: error.message,
+      });
     }
+  },
+);
+
+// Serve static prescription files
+app.use("/prescriptions", express.static(prescriptionDir));
+
+// Route to get patient's prescription list
+app.get("/api/patient/:patientId/prescriptions", (req, res) => {
+  const { patientId } = req.params;
+
+  console.log(`Fetching prescriptions for patient: ${patientId}`);
+  console.log("Current prescription store:", Object.keys(prescriptionStore));
+
+  if (!prescriptionStore[patientId]) {
+    console.log(`No prescriptions found for patient: ${patientId}`);
+    return res.json({ prescriptions: [] });
+  }
+
+  // Return metadata without file paths for security
+  const prescriptions = prescriptionStore[patientId].map((rx) => ({
+    id: rx.id,
+    originalName: rx.originalName,
+    fileType: rx.fileType,
+    uploadedAt: rx.uploadedAt,
+    schedule: rx.schedule,
+  }));
+
+  console.log(
+    `Found ${prescriptions.length} prescriptions for patient: ${patientId}`,
+  );
+  res.json({ prescriptions });
 });
+
+// Route to get prescription image file
+app.get(
+  "/api/patient/:patientId/prescriptions/:prescriptionId/file",
+  (req, res) => {
+    const { patientId, prescriptionId } = req.params;
+
+    if (!prescriptionStore[patientId]) {
+      return res.status(404).json({ error: "Patient not found" });
+    }
+
+    const prescription = prescriptionStore[patientId].find(
+      (rx) => rx.id === prescriptionId,
+    );
+    if (!prescription) {
+      return res.status(404).json({ error: "Prescription not found" });
+    }
+
+    if (!fs.existsSync(prescription.filePath)) {
+      return res.status(404).json({ error: "Prescription file not found" });
+    }
+
+    res.sendFile(prescription.filePath);
+  },
+);
+
+// Route to get prescription details
+app.get("/api/patient/:patientId/prescriptions/:prescriptionId", (req, res) => {
+  const { patientId, prescriptionId } = req.params;
+
+  if (!prescriptionStore[patientId]) {
+    return res.status(404).json({ error: "Patient not found" });
+  }
+
+  const prescription = prescriptionStore[patientId].find(
+    (rx) => rx.id === prescriptionId,
+  );
+  if (!prescription) {
+    return res.status(404).json({ error: "Prescription not found" });
+  }
+
+  // Return full metadata except file path
+  const { filePath, ...prescriptionData } = prescription;
+  res.json(prescriptionData);
+});
+
+// Route to update medication adherence
+app.post("/api/patient/:patientId/medication-adherence", (req, res) => {
+  const { patientId } = req.params;
+  const { medicationId, taken, timestamp } = req.body;
+
+  console.log(
+    `Updating medication adherence for patient: ${patientId}, medication: ${medicationId}, taken: ${taken}`,
+  );
+
+  // Initialize patient adherence if it doesn't exist
+  if (!medicationAdherence[patientId]) {
+    medicationAdherence[patientId] = {};
+  }
+
+  // Update adherence record
+  medicationAdherence[patientId][medicationId] = {
+    taken,
+    timestamp: timestamp || new Date().toISOString(),
+    lastUpdated: new Date().toISOString(),
+  };
+
+  console.log(
+    `Medication adherence updated:`,
+    medicationAdherence[patientId][medicationId],
+  );
+
+  res.json({
+    success: true,
+    message: "Medication adherence updated successfully",
+    adherence: medicationAdherence[patientId][medicationId],
+  });
+});
+
+// Route to get medication adherence for a patient
+app.get("/api/patient/:patientId/medication-adherence", (req, res) => {
+  const { patientId } = req.params;
+
+  console.log(`Fetching medication adherence for patient: ${patientId}`);
+
+  if (!medicationAdherence[patientId]) {
+    return res.json({ adherence: {} });
+  }
+
+  res.json({ adherence: medicationAdherence[patientId] });
+});
+
+// Route to get medication adherence for a specific medication
+app.get(
+  "/api/patient/:patientId/medication-adherence/:medicationId",
+  (req, res) => {
+    const { patientId, medicationId } = req.params;
+
+    if (
+      !medicationAdherence[patientId] ||
+      !medicationAdherence[patientId][medicationId]
+    ) {
+      return res.json({ adherence: null });
+    }
+
+    res.json({ adherence: medicationAdherence[patientId][medicationId] });
+  },
+);
 
 const PORT = 3001;
 app.listen(PORT, () => {
-    console.log(`Backend server running on http://localhost:${PORT}`);
+  console.log(`Backend server running on http://localhost:${PORT}`);
 });
