@@ -1,3 +1,4 @@
+console.log('--- SERVER INITIALIZING ---');
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
@@ -19,6 +20,28 @@ app.get('/health', (req, res) => {
     res.status(200).json({ status: 'ok' });
 });
 
+// Mock Database of Patients
+const mockPatients = {
+    'HID-TN-20240847': {
+        name: 'Rajan Kumar',
+        age: 64,
+        gender: 'Male',
+        bloodGroup: 'O+',
+        conditions: ['Type 2 Diabetes', 'Hypertension', 'Hyperlipidemia'],
+        allergies: ['Penicillin', 'Aspirin'],
+        medications: [
+            { name: 'Metformin', dosage: '500mg', frequency: 'Twice daily' },
+            { name: 'Amlodipine', dosage: '5mg', frequency: 'Once daily' },
+            { name: 'Atorvastatin', dosage: '10mg', frequency: 'At bedtime' }
+        ],
+        history: [
+            { date: '2026-03-10', type: 'Consultation', doctor: 'Dr. S. Mehta', notes: 'BP controlled. HbA1c improving. Continue current meds.' },
+            { date: '2026-03-05', type: 'Lab Report', facility: 'City Diagnostics', results: 'HbA1c: 7.2%, Creatinine: 0.9, Cholesterol: 178 mg/dL.' },
+            { date: '2026-01-08', type: 'Emergency Visit', facility: 'Apollo Hospital', notes: 'Chest pain episode — ruled out cardiac event. Stress ECG normal.' }
+        ]
+    }
+};
+
 // Helper to clean up uploaded files
 const cleanupFile = (filePath) => {
     try {
@@ -29,6 +52,55 @@ const cleanupFile = (filePath) => {
         console.error('Failed to cleanup file:', filePath, err);
     }
 };
+
+// Route to summarize patient history using AI (POST)
+app.post('/api/summarize-patient', async (req, res) => {
+    const { healthId } = req.body;
+    await summarizePatient(healthId, res);
+});
+
+// Route to summarize patient history using AI (GET - for testing)
+app.get('/api/summarize-patient/:healthId', async (req, res) => {
+    const { healthId } = req.params;
+    await summarizePatient(healthId, res);
+});
+
+async function summarizePatient(healthId, res) {
+    if (!healthId || !mockPatients[healthId]) {
+        return res.status(404).json({ error: 'Patient not found' });
+    }
+
+    const patient = mockPatients[healthId];
+
+    try {
+        const prompt = `
+You are a medical AI assistant. Summarize the following patient's medical history for a doctor. 
+Focus on active conditions, critical allergies, recent lab results, and previous significant events (like emergency visits).
+Keep the summary concise and professional.
+
+Patient Data:
+${JSON.stringify(patient, null, 2)}
+
+Output the summary in plain text or markdown.
+        `;
+
+        console.log(`Summarizing history for patient: ${healthId}...`);
+        const ollamaResponse = await axios.post('http://localhost:11434/api/generate', {
+            model: 'llama3',
+            prompt: prompt,
+            stream: false
+        });
+
+        res.json({ 
+            summary: ollamaResponse.data.response,
+            patientName: patient.name 
+        });
+
+    } catch (error) {
+        console.error('Summarization Error:', error.message);
+        res.status(500).json({ error: 'Failed to generate AI summary', details: error.message });
+    }
+}
 
 // Route to handle prescription upload and AI analysis
 app.post('/api/analyze-prescription', upload.single('prescription'), async (req, res) => {

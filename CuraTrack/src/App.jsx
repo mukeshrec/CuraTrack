@@ -17,6 +17,11 @@ function App() {
     { id: 2, name: 'Amlodipine 5mg', detail: 'Before lunch · Hypertension', time: '2:27 PM', status: 'upcoming', icon: 'yellow' },
     { id: 3, name: 'Atorvastatin 10mg', detail: 'After dinner · Cholesterol', time: '9:00 PM', status: 'evening', icon: 'blue' }
   ]);
+
+  // New states for AI Patient Summary
+  const [fetchHealthId, setFetchHealthId] = useState('HID-TN-20240847');
+  const [patientSummary, setPatientSummary] = useState(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
   useEffect(() => {
     // Initial notifications mock
     const t1 = setTimeout(() => addNotification('⚠️', 'Medication Due', 'Amlodipine 5mg due for Rajan Kumar at 1:00 PM'), 2000);
@@ -110,6 +115,34 @@ function App() {
     setMeds(prev => [...prev, ...newMeds]);
     setPendingSchedule(null);
     addNotification('📅', 'Schedule Active', 'Meds automatically added to your timer');
+  };
+
+  const handleFetchSummary = async () => {
+    if (!fetchHealthId) return;
+
+    setSummaryLoading(true);
+    addNotification('⏳', 'Summarizing...', 'Llama 3 is synthesizing patient history');
+
+    try {
+      const res = await fetch('http://localhost:3001/api/summarize-patient', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ healthId: fetchHealthId })
+      });
+      const data = await res.json();
+
+      if (data.summary) {
+        setPatientSummary(data.summary);
+        addNotification('✅', 'Summary Ready', `Health record for ${data.patientName} has been summarized.`);
+      } else {
+        addNotification('❌', 'Error', data.error || 'Failed to fetch summary');
+      }
+    } catch (err) {
+      addNotification('❌', 'Fetch Failed', 'Could not reach backend server');
+      console.error(err);
+    } finally {
+      setSummaryLoading(false);
+    }
   };
 
 
@@ -622,15 +655,30 @@ function App() {
                         <div style={{"fontSize":"44px","marginBottom":"8px"}}>📷</div>
                         <div style={{"fontSize":"12.5px","color":"var(--text2)"}}>Scan patient QR or enter Health ID</div>
                     </div>
-                    <input className="form-input" placeholder="Or type HID manually..." style={{"marginBottom":"8px"}} />
+                    <input className="form-input" placeholder="Or type HID manually..." style={{"marginBottom":"8px"}} value={fetchHealthId} onChange={(e) => setFetchHealthId(e.target.value)} />
                     <button className="btn btn-primary"
-                        onClick={() => addNotification('🤖','AI Summary Ready','Patient history summarized for Dr. Nair')}>🔍 Fetch
-                        & Summarize</button>
+                        onClick={handleFetchSummary} disabled={summaryLoading}>{summaryLoading ? '⌛ Processing...' : '🔍 Fetch & Summarize'}</button>
+
                 </div>
                 <div>
                     <div className="ai-summary-box">
                         <div className="ai-label">✦ AI Pre-Summary for Incoming Patient</div>
-                        <div className="ai-text" style={{"marginBottom":"12px"}}>
+                        <div className="ai-text" style={{"marginBottom":"12px", whiteSpace: 'pre-wrap'}}>
+                            {patientSummary || (
+                                <>
+                                    <strong>Rajan Kumar</strong> (64M) — Transferred from Ambattur PHC.<br /><br />
+                                    🔴 <strong>Active conditions:</strong> Type 2 Diabetes, Hypertension, Hyperlipidemia<br />
+                                    ⚠️ <strong>Allergies:</strong> Penicillin, Aspirin — <em>do not administer</em><br />
+                                    💊 <strong>Current meds:</strong> Metformin 500mg (BD), Amlodipine 5mg (OD), Atorvastatin
+                                    10mg (HS)<br />
+                                    📋 <strong>Last visit:</strong> Mar 10, 2026 — Dr. Mehta, Diabetology<br />
+                                    🧪 <strong>Last labs:</strong> Mar 5 — HbA1c 7.2%, Cholesterol 178<br />
+                                    🆘 <strong>Emergency note:</strong> Chest pain history (Jan 2026), ECG normal
+                                </>
+                            )}
+                        </div>
+                        {/* Old content below will be removed manually if needed */}
+                        <div style={{display: 'none'}}>
                             <strong>Rajan Kumar</strong> (64M) — Transferred from Ambattur PHC.<br /><br />
                             🔴 <strong>Active conditions:</strong> Type 2 Diabetes, Hypertension, Hyperlipidemia<br />
                             ⚠️ <strong>Allergies:</strong> Penicillin, Aspirin — <em>do not administer</em><br />
