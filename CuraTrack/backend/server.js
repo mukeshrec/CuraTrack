@@ -14,6 +14,11 @@ app.use(express.json());
 // Set up multer for handling file uploads
 const upload = multer({ dest: 'uploads/' });
 
+// Health check route
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok' });
+});
+
 // Helper to clean up uploaded files
 const cleanupFile = (filePath) => {
     try {
