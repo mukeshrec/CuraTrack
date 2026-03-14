@@ -32,6 +32,16 @@ const prescriptionStore = {};
 // In-memory storage for medication adherence (in production, use a database)
 const medicationAdherence = {};
 
+// In-memory storage for patient profiles (mobile numbers, etc.)
+const patientProfileStore = {};
+
+// Helper: Send SMS via mTalkz (Mocked)
+const sendMtalkzSms = async (mobile, message) => {
+  console.log(`[mTalkz SMS] To: ${mobile} | Msg: ${message}`);
+  // In a real scenario, this would be an axios.get/post to mTalkz API
+  return true;
+};
+
 // Health check route
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok" });
@@ -854,6 +864,51 @@ app.post("/api/practo/appointments/book", (req, res) => {
     confirmationMessage: `Slot confirmed at ${slot}. Please arrive 10 mins early.`
   });
 });
+
+// Patient Profile & SMS Routes
+app.get("/api/patient/:patientId/mobile", (req, res) => {
+  const { patientId } = req.params;
+  const profile = patientProfileStore[patientId] || {};
+  res.json({ success: true, mobile: profile.mobile || "" });
+});
+
+app.post("/api/patient/:patientId/mobile", (req, res) => {
+  const { patientId } = req.params;
+  const { mobile } = req.body;
+  if (!patientProfileStore[patientId]) patientProfileStore[patientId] = {};
+  patientProfileStore[patientId].mobile = mobile;
+  res.json({ success: true, message: "Mobile number saved successfully" });
+});
+
+app.post("/api/patient/:patientId/test-sms", async (req, res) => {
+  const { patientId } = req.params;
+  const profile = patientProfileStore[patientId];
+  if (!profile || !profile.mobile) {
+    return res.status(400).json({ success: false, error: "No mobile number linked" });
+  }
+  await sendMtalkzSms(profile.mobile, "CuraTrack: This is a test alert from mTalkz. Your medication reminders are active!");
+  res.json({ success: true, message: "Test SMS sent via mTalkz mock" });
+});
+
+// Medication Notification Scheduler
+setInterval(() => {
+  const now = new Date();
+  const currentTime = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+  
+  Object.keys(prescriptionStore).forEach(patientId => {
+    const mobile = patientProfileStore[patientId]?.mobile;
+    if (!mobile) return;
+    
+    prescriptionStore[patientId].forEach(prescription => {
+      prescription.schedule.forEach(dose => {
+        if (dose.timeString === currentTime) {
+          const message = `CuraTrack Reminder: It's time to take your ${dose.medName} (${dose.dosage}).`;
+          sendMtalkzSms(mobile, message);
+        }
+      });
+    });
+  });
+}, 60000);
 
 const PORT = 3001;
 app.listen(PORT, () => {

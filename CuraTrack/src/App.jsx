@@ -111,6 +111,11 @@ function App() {
   const [bookingComplete, setBookingComplete] = useState(false);
   const [bookingDetails, setBookingDetails] = useState(null);
 
+  // New states for SMS Notifications
+  const [mobileNumber, setMobileNumber] = useState("");
+  const [mobileSaving, setMobileSaving] = useState(false);
+  const patientId = "HID-TN-20240847"; // Mock patient ID
+
   useEffect(() => {
     // Initial notifications mock
     const t1 = setTimeout(
@@ -160,13 +165,13 @@ function App() {
     fetchPrescriptions();
     fetchClaims();
     fetchPractoHospitals();
-
+    fetchMobile();
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
       clearInterval(alarmInterval);
     };
-  }, [meds, activeView]);
+  }, [meds]);
 
   const addNotification = (icon, title, body) => {
     const newNotif = { id: Date.now() + Math.random(), icon, title, body };
@@ -484,6 +489,53 @@ function App() {
       if (data.claims) setClaims(data.claims);
     } catch (err) {
       console.error("Failed to fetch claims:", err);
+    }
+  };
+
+  const fetchMobile = async () => {
+    try {
+      const res = await fetch(`http://localhost:3001/api/patient/${patientId}/mobile`);
+      const data = await res.json();
+      if (data.success) setMobileNumber(data.mobile);
+    } catch (err) {
+      console.error("Fetch mobile failed:", err.message);
+    }
+  };
+
+  const saveMobile = async () => {
+    if (!mobileNumber || mobileNumber.length !== 10) {
+      addNotification("⚠️", "Invalid Number", "Please enter a valid 10-digit mobile number.");
+      return;
+    }
+    setMobileSaving(true);
+    try {
+      const res = await fetch(`http://localhost:3001/api/patient/${patientId}/mobile`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mobile: mobileNumber }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        addNotification("📱", "SMS Enabled", "Medication alerts will now be sent to your mobile via mTalkz.");
+      }
+    } catch (err) {
+      addNotification("❌", "Update Failed", "Could not link your mobile number.");
+    } finally {
+      setMobileSaving(false);
+    }
+  };
+
+  const sendTestSms = async () => {
+    try {
+      const res = await fetch(`http://localhost:3001/api/patient/${patientId}/test-sms`, {
+        method: "POST"
+      });
+      const data = await res.json();
+      if (data.success) {
+        addNotification("🧪", "Test SMS Sent", "Check your mobile/backend logs for the mTalkz alert.");
+      }
+    } catch (err) {
+      addNotification("❌", "Test Failed", "Could not send test message.");
     }
   };
 
@@ -944,6 +996,60 @@ function App() {
                 (78%). BP slightly elevated this week. HbA1c improving.
                 Recommend follow-up with Dr. Mehta within 7 days.
               </div>
+            </div>
+          </div>
+
+          <div className="card" style={{ marginTop: "16px" }}>
+            <div className="card-title">
+              <div className="card-title-icon">📱</div> SMS Notifications (mTalkz)
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              <p style={{ fontSize: "12px", color: "var(--text2)", lineHeight: "1.4" }}>
+                Receive real-time alerts for your medicine doses directly on your phone.
+              </p>
+              <div style={{ position: "relative" }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Enter Mobile Number"
+                  value={mobileNumber}
+                  onChange={(e) => setMobileNumber(e.target.value)}
+                  style={{ 
+                    paddingRight: "40px", 
+                    borderColor: mobileNumber.length === 10 ? "var(--teal)" : "var(--border)",
+                    background: mobileNumber.length === 10 ? "var(--teal-light)" : "var(--surface2)"
+                  }}
+                />
+                {mobileNumber.length === 10 && (
+                  <span style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", color: "var(--teal)", fontWeight: "700" }}>✓</span>
+                )}
+              </div>
+              <button 
+                className="btn btn-primary" 
+                style={{ 
+                  width: "100%", 
+                  background: mobileNumber.length === 10 ? "var(--blue)" : "var(--text3)",
+                  cursor: mobileNumber.length === 10 ? "pointer" : "not-allowed"
+                }}
+                disabled={mobileSaving || mobileNumber.length !== 10}
+                onClick={saveMobile}
+              >
+                {mobileSaving ? "🚀 Linking..." : "Enable SMS Alerts"}
+              </button>
+              {mobileNumber.length === 10 && (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "4px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "var(--teal)", fontWeight: "700" }}>
+                    <div style={{ width: "8px", height: "8px", border: "1.5px solid var(--teal)", borderTopColor: "transparent", borderRadius: "50%" }}></div>
+                    Mtalkz Network Ready
+                  </div>
+                  <button 
+                    onClick={sendTestSms}
+                    style={{ background: "none", border: "none", color: "var(--blue)", fontSize: "11px", fontWeight: "600", cursor: "pointer", padding: "0", textDecoration: "underline" }}
+                  >
+                    Send Test SMS
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
