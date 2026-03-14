@@ -84,7 +84,71 @@ const mockPatients = {
       }
     ]
   },
+  "HID-TN-20240955": {
+    name: "Anita Sharma",
+    age: 45,
+    gender: "Female",
+    bloodGroup: "A+",
+    conditions: ["Asthma"],
+    allergies: ["Dust"],
+    medications: [
+      { name: "Salbutamol Inhaler", dosage: "100mcg", frequency: "As needed" },
+    ],
+    history: [
+      {
+        date: "2026-02-15",
+        type: "Consultation",
+        doctor: "Dr. Arjun Rajan",
+        notes: "Mild wheezing. Continue inhaler.",
+      },
+    ],
+  },
+  "HID-TN-20241012": {
+    name: "Vikram Singh",
+    age: 52,
+    gender: "Male",
+    bloodGroup: "B-",
+    conditions: ["Hypertension"],
+    allergies: [],
+    medications: [
+      { name: "Lisinopril", dosage: "10mg", frequency: "Once daily" },
+    ],
+    history: [
+      {
+        date: "2026-01-20",
+        type: "Consultation",
+        doctor: "Dr. Priya Nair",
+        notes: "BP slightly elevated. Increased dosage.",
+      },
+    ],
+  },
 };
+
+// Mock Hospital Appointments
+const mockAppointments = {
+  "HOSP-TN-001": [ // Apollo Hospital
+    { id: "APT-001", patientId: "HID-TN-20240847", patientName: "Rajan Kumar", time: "10:00 AM", reason: "Follow-up for Diabetes", status: "Pending", doctorAssigned: null },
+    { id: "APT-002", patientId: "HID-TN-20240955", patientName: "Anita Sharma", time: "11:30 AM", reason: "Breathing difficulty", status: "Pending", doctorAssigned: null },
+  ],
+  "HOSP-TN-044": [ // Ambattur PHC
+    { id: "APT-003", patientId: "HID-TN-20241012", patientName: "Vikram Singh", time: "09:15 AM", reason: "Routine BP Check", status: "Pending", doctorAssigned: null },
+  ]
+};
+
+// Initial state for Doctor Queue
+// Structure: { doctorId: [ { appointmentId, patientId, patientName, time, reason, status, isEmergency } ] }
+const doctorQueue = {
+  "DID-TN-0081": [], // Dr. Suresh Mehta
+  "DID-TN-0124": [], // Dr. Priya Nair
+  "DID-TN-0209": []  // Dr. Arjun Rajan
+};
+
+// Mock Doctors Directory
+const mockDoctors = [
+  { id: "DID-TN-0081", name: "Dr. Suresh Mehta", specialty: "Diabetology", experience: "15+ Years", status: "On-call until 8 PM", avatar: "👨‍⚕️" },
+  { id: "DID-TN-0124", name: "Dr. Priya Nair", specialty: "Cardiology", experience: "12+ Years", status: "Available", avatar: "👩‍⚕️" },
+  { id: "DID-TN-0209", name: "Dr. Arjun Rajan", specialty: "General Medicine", experience: "8+ Years", status: "Available", avatar: "👨‍⚕️" },
+];
 
 // Helper to clean up uploaded files
 const cleanupFile = (filePath) => {
@@ -467,6 +531,8 @@ app.get(
   },
 );
 
+// --- Smart Health Insurance Routes ---
+
 // Route to fetch real insurance data from a Sandbox API (HAPI FHIR)
 app.post("/api/patient/:patientId/insurance", async (req, res) => {
   const { patientId } = req.params;
@@ -480,8 +546,6 @@ app.post("/api/patient/:patientId/insurance", async (req, res) => {
     console.log(`Fetching real sandbox insurance data for patient ${patientId}, provider: ${provider}, ID: ${insuranceId}`);
     
     // We query the public HAPI FHIR server for Coverage resources.
-    // In a real production scenario, this would be a secure, authenticated call to a specific payer.
-    // Here we make a real HTTP request to the sandbox API.
     const fhirResponse = await axios.get("http://hapi.fhir.org/baseR4/Coverage", {
       params: {
         _count: 1 // Just grab one sample coverage record for demonstration
@@ -494,15 +558,12 @@ app.post("/api/patient/:patientId/insurance", async (req, res) => {
       throw new Error("No coverage data returned from sandbox API.");
     }
 
-    // Extract relevant data from the FHIR Coverage resource
     const coverageResource = fhirData.entry[0].resource;
     
-    // Construct a simplified insurance profile based on real sandbox data
     const insuranceDetails = {
       provider: provider || "Sandbox Health",
       insuranceId: insuranceId || coverageResource.id,
       status: coverageResource.status || "Unknown",
-      // Try to find a period, fallback to mock dates if not present in the random sandbox record
       validTill: coverageResource.period?.end 
         ? new Date(coverageResource.period.end).toISOString().split('T')[0] 
         : "2027-12-31",
@@ -510,7 +571,6 @@ app.post("/api/patient/:patientId/insurance", async (req, res) => {
       type: coverageResource.type?.text || "General Health Coverage"
     };
 
-    // Store it in the mock database
     mockPatients[patientId].insurance = insuranceDetails;
 
     res.json({
@@ -537,40 +597,27 @@ app.post("/api/patient/:patientId/insurance-schemes", async (req, res) => {
 
   const patient = mockPatients[patientId];
 
-  // Define some real-world mock schemes for demonstration based on provider or general availability
   const availableSchemes = [
     {
       id: "SCH-001",
       name: "Star Health Senior Citizen Red Carpet",
       type: "Comprehensive Senior Health",
       coverageLimit: "₹10,00,000",
-      highlights: [
-        "No pre-medical screening required",
-        "Covers pre-existing diseases from year 2",
-        "Higher copay for specific conditions"
-      ]
+      highlights: ["No pre-medical screening required", "Covers pre-existing diseases from year 2", "Higher copay for specific conditions"]
     },
     {
       id: "SCH-002",
       name: "HDFC ERGO Optima Secure",
       type: "Super Top-up / Base",
       coverageLimit: "₹20,00,000",
-      highlights: [
-        "2X Coverage from day 1",
-        "Covers non-medical expenses",
-        "Preventive health checkups included"
-      ]
+      highlights: ["2X Coverage from day 1", "Covers non-medical expenses", "Preventive health checkups included"]
     },
     {
       id: "SCH-003",
       name: "Ayushman Bharat PM-JAY",
       type: "Government Subsidy",
       coverageLimit: "₹5,00,000",
-      highlights: [
-        "100% cashless treatment at empanelled hospitals",
-        "Covers up to 3 days pre-hospitalization",
-        "No restriction on family size, age or gender"
-      ]
+      highlights: ["100% cashless treatment at empanelled hospitals", "Covers pre-hospitalization", "No restriction on age"]
     }
   ];
 
@@ -578,86 +625,43 @@ app.post("/api/patient/:patientId/insurance-schemes", async (req, res) => {
     console.log(`Analyzing schemes for patient ${patientId} using Llama 3...`);
 
     const prompt = `
-You are an expert Medical Insurance Underwriter and AI Advisor. 
 Analyze the following patient's health profile and the list of available insurance schemes.
-Your goal is to determine the patient's eligibility for each scheme, provide a personalized recommendation, and estimate the financial benefit if they proceed with the claim/policy.
+Determine eligibility match (0-100), provide a personalized recommendation, and estimate savings.
 
 Patient Profile:
-Name: ${patient.name}
-Age: ${patient.age}
-Conditions: ${patient.conditions.join(", ")}
-Recent History snippet: ${patient.history[0]?.notes || "None"}
+Name: ${patient.name}, Age: ${patient.age}, Conditions: ${patient.conditions.join(", ")}
 
 Available Schemes:
 ${JSON.stringify(availableSchemes, null, 2)}
 
-Return your analysis strictly as a JSON array of objects, with NO markdown formatting, NO extra text, and NO explanations outside the JSON.
-Each object must represent a scheme analysis with the following exact keys:
+Return strictly a JSON array of objects:
 [
   {
-    "schemeId": "ID of the scheme",
-    "schemeName": "Name of the scheme",
-    "eligibilityPercentage": "A number between 0 and 100 representing eligibility match (e.g. 85)",
-    "recommendationReason": "A 1-2 sentence personalized explanation of why this scheme matches their specific health conditions (e.g. mentions their Diabetes or Hypertension)",
-    "estimatedSavings": "A string estimating potential savings or coverage (e.g. 'Up to ₹2,50,000/yr')"
+    "schemeId": "ID", "schemeName": "Name", "eligibilityPercentage": number,
+    "recommendationReason": "string", "estimatedSavings": "string"
   }
-]
-    `;
+]`;
 
-    const ollamaResponse = await axios.post(
-      "http://localhost:11434/api/generate",
-      {
-        model: "llama3",
-        prompt: prompt,
-        stream: false,
-      },
-    );
+    const ollamaResponse = await axios.post("http://localhost:11434/api/generate", {
+      model: "llama3",
+      prompt: prompt,
+      stream: false,
+    });
 
     const rawResponse = ollamaResponse.data.response;
-    console.log("Raw Llama 3 Output for Schemes:", rawResponse);
+    const jsonMatch = rawResponse.match(/\[[\s\S]*\]/);
+    const analyzedSchemes = JSON.parse(jsonMatch ? jsonMatch[0] : rawResponse);
 
-    let analyzedSchemes = [];
-    try {
-      const jsonMatch = rawResponse.match(/\[[\s\S]*\]/);
-      const jsonStr = jsonMatch ? jsonMatch[0] : rawResponse;
-      analyzedSchemes = JSON.parse(jsonStr);
-    } catch (jsonErr) {
-      console.error("Failed to parse JSON from AI response:", rawResponse);
-      // Fallback: Use manual mapping if AI output is malformed
-      analyzedSchemes = availableSchemes.map(s => ({
-        schemeId: s.id,
-        schemeName: s.name,
-        eligibilityPercentage: Math.floor(Math.random() * 30) + 60,
-        recommendationReason: `Highly recommended for your ${patient.conditions[0]} management and overall health profile.`,
-        estimatedSavings: "₹2,500 - ₹15,000 per claim"
-      }));
-    }
-
-    res.json({
-      success: true,
-      patientName: patient.name,
-      availableSchemes: availableSchemes, // Section 1: Raw data
-      analyzedSchemes: analyzedSchemes    // Sections 2 & 3: AI data
-    });
-
+    res.json({ success: true, availableSchemes, analyzedSchemes });
   } catch (error) {
-    console.error("AI Analysis skipped or failed, using smart fallback:", error.message);
-    
-    // Fallback: Even if AI is down (404/500), we return data so UI doesn't break
+    console.error("AI Analysis failed, using fallback:", error.message);
     const fallbackAnalyzed = availableSchemes.map(s => ({
-      schemeId: s.id,
-      schemeName: s.name,
+      schemeId: s.id, schemeName: s.name,
       eligibilityPercentage: Math.floor(Math.random() * 25) + 70,
-      recommendationReason: `Optimized for ${patient.conditions[0]} and senior care benefits based on standard provider guidelines.`,
-      estimatedSavings: "Significant cost reduction on premiums"
+      recommendationReason: `Optimized for ${patient.conditions[0]} management.`,
+      estimatedSavings: "Significant cost reduction"
     }));
-
-    res.json({
-      success: true,
-      patientName: patient.name,
-      availableSchemes: availableSchemes,
-      analyzedSchemes: fallbackAnalyzed
-    });
+    res.json({ success: true, availableSchemes, analyzedSchemes: fallbackAnalyzed });
   }
 });
 
@@ -673,41 +677,95 @@ app.post("/api/patient/:patientId/claims", (req, res) => {
   const newClaim = {
     id: `CLM-${Math.floor(Math.random() * 9000) + 1000}`,
     date: new Date().toISOString().split('T')[0],
-    schemeName,
-    amount,
-    reason,
+    schemeName, amount, reason,
     type: type || "Cashless",
-    status: "Pending" // Default status for new claims
+    status: "Pending"
   };
 
-  if (!mockPatients[patientId].claims) {
-    mockPatients[patientId].claims = [];
-  }
-
+  if (!mockPatients[patientId].claims) mockPatients[patientId].claims = [];
   mockPatients[patientId].claims.unshift(newClaim);
 
-  console.log(`New claim submitted for patient ${patientId}:`, newClaim);
-
-  res.json({
-    success: true,
-    message: "Claim submitted successfully and is under review",
-    claim: newClaim
-  });
+  res.json({ success: true, claim: newClaim });
 });
 
 // Route to fetch all claims for a patient
 app.get("/api/patient/:patientId/claims", (req, res) => {
   const { patientId } = req.params;
+  if (!patientId || !mockPatients[patientId]) return res.status(404).json({ error: "Patient not found" });
+  res.json({ success: true, claims: mockPatients[patientId].claims || [] });
+});
 
-  if (!patientId || !mockPatients[patientId]) {
-    return res.status(404).json({ error: "Patient not found" });
+// --- Infrastructure Portal Routes ---
+
+// Get Appointments for a specific hospital
+app.get("/api/hospital/:hospitalId/appointments", (req, res) => {
+  const { hospitalId } = req.params;
+  const appointments = mockAppointments[hospitalId] || [];
+  res.json({ appointments });
+});
+
+// Get Detailed Doctor List with active queue metadata
+app.get("/api/doctors", (req, res) => {
+  const doctorsWithQueueLength = mockDoctors.map((doc) => ({
+    ...doc,
+    activeQueueLength: doctorQueue[doc.id] ? doctorQueue[doc.id].length : 0
+  }));
+  res.json({ doctors: doctorsWithQueueLength });
+});
+
+// Assign a patient/appointment to a doctor
+app.post("/api/appointments/assign", (req, res) => {
+  const { hospitalId, appointmentId, doctorId, isEmergency } = req.body;
+
+  if (!mockAppointments[hospitalId]) {
+    return res.status(404).json({ error: "Hospital not found" });
   }
 
-  res.json({
-    success: true,
-    claims: mockPatients[patientId].claims || []
-  });
+  const appointmentIndex = mockAppointments[hospitalId].findIndex(a => a.id === appointmentId);
+
+  if (appointmentIndex === -1) {
+    return res.status(404).json({ error: "Appointment not found" });
+  }
+
+  // Update appointment status and assigned doctor
+  mockAppointments[hospitalId][appointmentIndex].status = "Assigned";
+  mockAppointments[hospitalId][appointmentIndex].doctorAssigned = doctorId;
+  mockAppointments[hospitalId][appointmentIndex].isEmergency = isEmergency || false;
+
+  const assignedAppointment = mockAppointments[hospitalId][appointmentIndex];
+
+  // Add to doctor's queue if it doesn't already exist
+  if (!doctorQueue[doctorId]) {
+    doctorQueue[doctorId] = [];
+  }
+
+  // Check if patient is already in the queue to avoid duplicates
+  const alreadyInQueue = doctorQueue[doctorId].some(item => item.appointmentId === appointmentId);
+  if (!alreadyInQueue) {
+    if (isEmergency) {
+      // Unshift emergency patients to the very top of the queue
+      doctorQueue[doctorId].unshift({
+        ...assignedAppointment,
+        status: "In Queue"
+      });
+    } else {
+      doctorQueue[doctorId].push({
+        ...assignedAppointment,
+        status: "In Queue"
+      });
+    }
+  }
+
+  res.json({ success: true, message: "Patient assigned to doctor successfully", appointment: assignedAppointment });
 });
+
+// Get Doctor's Queue
+app.get("/api/doctor/:doctorId/queue", (req, res) => {
+  const { doctorId } = req.params;
+  const queue = doctorQueue[doctorId] || [];
+  res.json({ queue });
+});
+
 
 const PORT = 3001;
 app.listen(PORT, () => {

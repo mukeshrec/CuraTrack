@@ -6,6 +6,7 @@ function App() {
   const [activeView, setActiveView] = useState("patient");
   const [recording, setRecording] = useState(false);
   const [showSOS, setShowSOS] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [notifications, setNotifications] = useState([]);
 
   // New states for AI Prescription
@@ -76,6 +77,23 @@ function App() {
   const [claimAmount, setClaimAmount] = useState("");
   const [claimReason, setClaimReason] = useState("");
   const [submittingClaim, setSubmittingClaim] = useState(false);
+
+  // New states for Employee Portal
+  const [selectedHospital, setSelectedHospital] = useState("HOSP-TN-001");
+  const [hospitalAppointments, setHospitalAppointments] = useState([]);
+  const [appointmentsLoading, setAppointmentsLoading] = useState(false);
+
+  // Available doctors list for employee portal assignment (fetched from API)
+  const [doctorsList, setDoctorsList] = useState([]);
+  const [doctorsLoading, setDoctorsLoading] = useState(false);
+
+  // Track emergency tags per appointment manually
+  const [appointmentForms, setAppointmentForms] = useState({});
+
+  // New states for Doctor Portal Queue
+  const [patientQueue, setPatientQueue] = useState([]);
+  const [queueLoading, setQueueLoading] = useState(false);
+  const loggedInDoctorId = "DID-TN-0081"; // Mock logged-in doctor
 
   useEffect(() => {
     // Initial notifications mock
@@ -275,15 +293,15 @@ function App() {
           prevMeds.map((m) =>
             m.id === medId
               ? {
-                  ...m,
-                  taken: newTaken,
-                  status: newTaken ? "taken" : "upcoming",
-                  icon: newTaken
-                    ? "green"
-                    : m.status === "evening"
-                      ? "blue"
-                      : "yellow",
-                }
+                ...m,
+                taken: newTaken,
+                status: newTaken ? "taken" : "upcoming",
+                icon: newTaken
+                  ? "green"
+                  : m.status === "evening"
+                    ? "blue"
+                    : "yellow",
+              }
               : m,
           ),
         );
@@ -396,35 +414,23 @@ function App() {
       addNotification("⚠️", "Required Fields", "Please select provider and enter ID");
       return;
     }
-
     setInsuranceLoading(true);
     addNotification("⏳", "Verifying...", "Connecting to Insurance Network API");
-
     try {
       const res = await fetch("http://localhost:3001/api/patient/HID-TN-20240847/insurance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          provider: insuranceProvider, 
-          insuranceId: insuranceId 
-        }),
+        body: JSON.stringify({ provider: insuranceProvider, insuranceId }),
       });
-      
       const data = await res.json();
-
       if (data.success && data.insurance) {
         setInsuranceDetails(data.insurance);
-        addNotification(
-          "✅",
-          "Verification Success",
-          `Insurance profile linked successfully.`
-        );
+        addNotification("✅", "Success", `Insurance profile linked successfully.`);
       } else {
-        addNotification("❌", "Verification Failed", data.error || "Could not verify insurance details");
+        addNotification("❌", "Failed", data.error || "Could not verify insurance");
       }
     } catch (err) {
-      addNotification("❌", "Network Error", "Could not reach the server to verify insurance");
-      console.error(err);
+      addNotification("❌", "Error", "Could not reach the server");
     } finally {
       setInsuranceLoading(false);
     }
@@ -432,27 +438,23 @@ function App() {
 
   const handleCheckSchemes = async () => {
     if (!insuranceDetails) return;
-
     setSchemesLoading(true);
-    addNotification("🤖", "AI Analysis", "Llama 3 is analyzing eligible schemes based on your health...");
-
+    addNotification("🤖", "AI Analysis", "Llama 3 is analyzing eligible schemes...");
     try {
       const res = await fetch("http://localhost:3001/api/patient/HID-TN-20240847/insurance-schemes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          provider: insuranceDetails.provider 
-        }),
+        body: JSON.stringify({ provider: insuranceDetails.provider }),
       });
-      
       const data = await res.json();
-
       if (data.success) {
-        setEligibleSchemes(data); // Store the whole object containing both raw and analyzed
+        setEligibleSchemes(data);
         setShowSchemesModal(true);
       } else {
-        addNotification("❌", "Analysis Failed", data.error || "Could not analyze schemes");
+        addNotification("❌", "Failed", data.error || "Could not analyze schemes");
       }
+    } catch (err) {
+      addNotification("❌", "Error", "Could not reach AI engine");
     } finally {
       setSchemesLoading(false);
     }
@@ -462,9 +464,7 @@ function App() {
     try {
       const res = await fetch("http://localhost:3001/api/patient/HID-TN-20240847/claims");
       const data = await res.json();
-      if (data.success) {
-        setClaims(data.claims);
-      }
+      if (data.success) setClaims(data.claims);
     } catch (err) {
       console.error("Failed to fetch claims:", err);
     }
@@ -474,47 +474,121 @@ function App() {
     setSelectedSchemeForClaim(scheme);
     setShowSchemesModal(false);
     setShowClaimForm(true);
-    // Pre-fill reason if it's from AI recommendation
     setClaimReason(scheme.recommendationReason ? `As per AI recommendation: ${scheme.recommendationReason}` : "");
   };
 
   const handleSubmitClaim = async () => {
     if (!claimAmount || !claimReason) {
-      addNotification("⚠️", "Required Fields", "Please enter amount and reason for claim");
+      addNotification("⚠️", "Required Fields", "Please enter amount and reason");
       return;
     }
-
     setSubmittingClaim(true);
     addNotification("⏳", "Submitting...", "Filing your insurance claim request");
-
     try {
       const res = await fetch("http://localhost:3001/api/patient/HID-TN-20240847/claims", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           schemeName: selectedSchemeForClaim.schemeName || selectedSchemeForClaim.name,
-          amount: claimAmount,
-          reason: claimReason,
-          type: "Cashless"
+          amount: claimAmount, reason: claimReason, type: "Cashless"
         }),
       });
-
       const data = await res.json();
-
       if (data.success) {
-        addNotification("✅", "Claim Submitted", "Your claim is now under review by the insurance provider");
-        setShowClaimForm(false);
-        setClaimAmount("");
-        setClaimReason("");
-        await fetchClaims(); // Refresh claims list
+        addNotification("✅", "Claim Submitted", "Your claim is now under review");
+        setShowClaimForm(false); setClaimAmount(""); setClaimReason("");
+        await fetchClaims();
       } else {
-        addNotification("❌", "Submission Failed", data.error || "Could not submit claim");
+        addNotification("❌", "Failed", data.error || "Could not submit claim");
       }
     } catch (err) {
-      console.error("Claim submission error:", err);
-      addNotification("❌", "Network Error", "Failed to reach insurance server");
+      addNotification("❌", "Error", "Failed to reach insurance server");
     } finally {
       setSubmittingClaim(false);
+    }
+  };
+
+  const fetchHospitalAppointments = async (hospitalId) => {
+    if (!hospitalId) return;
+    setAppointmentsLoading(true);
+    try {
+      const res = await fetch(`http://localhost:3001/api/hospital/${hospitalId}/appointments`);
+      const data = await res.json();
+      setHospitalAppointments(data.appointments || []);
+    } catch (err) {
+      console.error("Failed to fetch appointments:", err);
+      addNotification("❌", "Error", "Failed to load hospital appointments");
+    } finally {
+      setAppointmentsLoading(false);
+    }
+  };
+
+  const fetchDoctors = async () => {
+    setDoctorsLoading(true);
+    try {
+      const res = await fetch(`http://localhost:3001/api/doctors`);
+      const data = await res.json();
+      setDoctorsList(data.doctors || []);
+    } catch (err) {
+      console.error("Failed to fetch doctors:", err);
+      // Fallback
+    } finally {
+      setDoctorsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeView === "employee") {
+      fetchHospitalAppointments(selectedHospital);
+      fetchDoctors();
+    } else if (activeView === "doctor") {
+      fetchDoctorQueue();
+    } else if (activeView === "patient") {
+      fetchClaims();
+    }
+  }, [selectedHospital, activeView]);
+
+  const fetchDoctorQueue = async () => {
+    setQueueLoading(true);
+    try {
+      const res = await fetch(`http://localhost:3001/api/doctor/${loggedInDoctorId}/queue`);
+      const data = await res.json();
+      setPatientQueue(data.queue || []);
+    } catch (err) {
+      console.error("Failed to fetch doctor queue:", err);
+      addNotification("❌", "Error", "Failed to load patient queue");
+    } finally {
+      setQueueLoading(false);
+    }
+  };
+
+  const handleAssignDoctor = async (appointmentId, doctorId, isEmergency = false) => {
+    if (!doctorId) {
+      addNotification("⚠️", "No Doctor Selected", "Please select a doctor to assign.");
+      return;
+    }
+
+    try {
+      const res = await fetch("http://localhost:3001/api/appointments/assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          hospitalId: selectedHospital,
+          appointmentId,
+          doctorId,
+          isEmergency
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        addNotification("✅", "Assigned", "Patient assigned to doctor successfully.");
+        fetchHospitalAppointments(selectedHospital); // Refresh list
+      } else {
+        addNotification("❌", "Assigned Failed", data.error || "Failed to assign doctor.");
+      }
+    } catch (err) {
+      console.error("Assign doctor failed:", err);
+      addNotification("❌", "Assigned Failed", "Failed to reach backend.");
     }
   };
 
@@ -566,6 +640,7 @@ function App() {
               <div className="sos-info-label">Nearest Hospital</div>
               <div className="sos-info-value">Ambattur PHC (2.1 km)</div>
             </div>
+
             <div className="sos-info-item">
               <div className="sos-info-label">Ambulance ETA</div>
               <div className="sos-info-value" style={{ color: "var(--teal)" }}>
@@ -633,13 +708,70 @@ function App() {
           >
             Caregiver Dashboard
           </button>
+          <button
+            className={`nav-tab ${activeView === "employee" ? "active" : ""}`}
+            onClick={() => setActiveView("employee")}
+          >
+            Hospital Employees
+          </button>
         </div>
-        <div className="nav-right">
+        <div className="nav-right" style={{ position: "relative" }}>
           <span className="offline-badge">⚡ Offline Ready</span>
           <button className="sos-btn" onClick={() => setShowSOS(true)}>
             🆘 SOS
           </button>
-          <div className="user-avatar">RK</div>
+
+          {(() => {
+            const profiles = {
+              "patient": { initials: "RK", name: "Rajan Kumar", role: "Patient", id: "HID-TN-20240847", extra1: "Age: 64 · Blood: O+", extra2: "Conditions: Diabetes, Hypertension" },
+              "doctor": { initials: "SM", name: "Dr. Suresh Mehta", role: "Diabetologist", id: "DID-TN-0081", extra1: "Experience: 15+ Years", extra2: "Status: On-call until 8 PM" },
+              "caregiver": { initials: "AP", name: "Anita Patel", role: "Caregiver", id: "CID-TN-9921", extra1: "Relation: Daughter", extra2: "Primary Caretaker for Rajan K." },
+              "employee": { initials: "HE", name: "Staff Admin", role: "Hospital Employee", id: "EID-HT-1021", extra1: "Facility: Apollo Hospital Chennai", extra2: "Clearance: Level 2 Admin" }
+            };
+            const currentProfile = profiles[activeView] || profiles["patient"];
+
+            return (
+              <>
+                <div
+                  className="user-avatar"
+                  onClick={() => setShowProfile(!showProfile)}
+                  style={{ cursor: "pointer", transition: "all 0.2s", transform: showProfile ? "scale(0.95)" : "scale(1)", boxShadow: showProfile ? "0 0 0 3px rgba(37,99,235,0.3)" : "none" }}
+                >
+                  {currentProfile.initials}
+                </div>
+
+                {showProfile && (
+                  <div className="profile-modal">
+                    <div className="profile-header">
+                      <div className="profile-avatar-large">{currentProfile.initials}</div>
+                      <div>
+                        <div className="profile-name">{currentProfile.name}</div>
+                        <div className="profile-role">{currentProfile.role}</div>
+                      </div>
+                    </div>
+                    <div className="profile-details">
+                      <div className="profile-detail-item">
+                        <span className="profile-detail-label">System ID</span>
+                        <span className="profile-detail-value" style={{ fontFamily: "monospace", color: "var(--blue)", fontWeight: "700" }}>{currentProfile.id}</span>
+                      </div>
+                      <div className="profile-detail-item">
+                        <span className="profile-detail-label">Details</span>
+                        <span className="profile-detail-value">{currentProfile.extra1}</span>
+                      </div>
+                      <div className="profile-detail-item">
+                        <span className="profile-detail-label">Status / Notes</span>
+                        <span className="profile-detail-value">{currentProfile.extra2}</span>
+                      </div>
+                    </div>
+                    <div className="profile-actions">
+                      <button className="btn btn-secondary" style={{ flex: 1, padding: "8px", fontSize: "13px" }} onClick={() => setShowProfile(false)}>Close Menu</button>
+                      <button className="btn btn-primary" style={{ flex: 1, padding: "8px", fontSize: "13px" }} onClick={() => { setShowProfile(false); addNotification("🔒", "Logged Out", "Secure session ended."); }}>Log Out</button>
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       </nav>
 
@@ -705,7 +837,6 @@ function App() {
               <span className="allergy-tag">Shellfish</span>
             </div>
           </div>
-
           <div className="card">
             <div className="card-title">
               <div className="card-title-icon">🤖</div> AI Health Summary
@@ -827,78 +958,28 @@ function App() {
                 </button>
                 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginTop: "12px" }}>
-                  <button 
-                    className="btn btn-secondary" 
-                    onClick={() => setInsuranceDetails(null)}
-                    style={{ width: "100%", fontSize: "13px" }}
-                  >
-                    Unlink Profile
-                  </button>
-                  <button 
-                    className="btn btn-secondary" 
-                    onClick={() => setShowInsuranceModal(true)}
-                    style={{ width: "100%", fontSize: "13px" }}
-                  >
-                    View Original Data
-                  </button>
+                  <button className="btn btn-secondary" onClick={() => setInsuranceDetails(null)} style={{ width: "100%", fontSize: "13px" }}>Unlink</button>
+                  <button className="btn btn-secondary" onClick={() => setShowInsuranceModal(true)} style={{ width: "100%", fontSize: "13px" }}>FHIR Data</button>
                 </div>
               </div>
             )}
 
-            {/* Claim Status Tracker Sidebar Section */}
             {insuranceDetails && claims.length > 0 && (
-              <div 
-                className="card" 
-                style={{ 
-                  marginTop: "16px", 
-                  padding: "16px", 
-                  border: "1px solid var(--border)",
-                  background: "linear-gradient(to bottom, #fff, var(--surface1))"
-                }}
-              >
+              <div className="card" style={{ marginTop: "16px", padding: "16px", border: "1px solid var(--border)", background: "linear-gradient(to bottom, #fff, var(--surface1))" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
                   <div style={{ fontSize: "14px", fontWeight: "700", color: "var(--text)" }}>📜 Active Claims Tracker</div>
-                  <div style={{ fontSize: "11px", color: "var(--teal)", fontWeight: "600", padding: "2px 6px", background: "var(--teal-light)", borderRadius: "4px" }}>
-                    {claims.filter(c => c.status === "Pending").length} PENDING
-                  </div>
+                  <div style={{ fontSize: "11px", color: "var(--teal)", fontWeight: "600", padding: "2px 6px", background: "var(--teal-light)", borderRadius: "4px" }}>{claims.filter(c => c.status === "Pending").length} PENDING</div>
                 </div>
-                
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                   {claims.slice(0, 3).map((claim, idx) => (
-                    <div key={idx} style={{ 
-                      padding: "10px", 
-                      borderRadius: "8px", 
-                      border: "1px solid var(--border)", 
-                      background: "white",
-                      fontSize: "12px",
-                      position: "relative"
-                    }}>
+                    <div key={idx} style={{ padding: "10px", borderRadius: "8px", border: "1px solid var(--border)", background: "white", fontSize: "12px", position: "relative" }}>
                       <div style={{ position: "absolute", right: "10px", top: "10px" }}>
-                        <span style={{ 
-                          fontSize: "10px", 
-                          padding: "2px 6px", 
-                          borderRadius: "4px",
-                          fontWeight: "800",
-                          color: claim.status === "Approved" ? "var(--teal)" : "var(--amber)",
-                          background: claim.status === "Approved" ? "rgba(16, 185, 129, 0.1)" : "rgba(245, 158, 11, 0.1)"
-                        }}>
-                          {claim.status.toUpperCase()}
-                        </span>
+                        <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "4px", fontWeight: "800", color: claim.status === "Approved" ? "var(--teal)" : "var(--amber)", background: claim.status === "Approved" ? "rgba(16, 185, 129, 0.1)" : "rgba(245, 158, 11, 0.1)" }}>{claim.status.toUpperCase()}</span>
                       </div>
-                      <div style={{ fontWeight: "700", width: "80%", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginBottom: "4px" }}>
-                        {claim.schemeName}
-                      </div>
-                      <div style={{ color: "var(--text2)", display: "flex", justifyContent: "space-between" }}>
-                        <span>{claim.date}</span>
-                        <span style={{ fontWeight: "700", color: "var(--blue)" }}>{claim.amount}</span>
-                      </div>
+                      <div style={{ fontWeight: "700", width: "80%", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginBottom: "4px" }}>{claim.schemeName}</div>
+                      <div style={{ color: "var(--text2)", display: "flex", justifyContent: "space-between" }}><span>{claim.date}</span><span style={{ fontWeight: "700", color: "var(--blue)" }}>{claim.amount}</span></div>
                     </div>
                   ))}
-                  {claims.length > 3 && (
-                    <div style={{ textAlign: "center", fontSize: "11px", color: "var(--text3)", cursor: "pointer" }}>
-                      View {claims.length - 3} more claims...
-                    </div>
-                  )}
                 </div>
               </div>
             )}
@@ -1094,151 +1175,99 @@ function App() {
             </div>
           </div>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: "18px",
-            }}
-          >
-            <div className="card">
-              <div className="card-title">
-                <div className="card-title-icon">🔮</div> AI Risk Alerts
-              </div>
-              <div className="insight-list scrollable">
-                <div className="insight-item">
-                  <div className="insight-icon warn">⚠️</div>
-                  <div className="insight-text">
-                    <div className="insight-title">Medication skip pattern</div>
-                    <div className="insight-sub">
-                      Evening dose missed 3× this week — BP risk increases
-                    </div>
-                  </div>
-                </div>
-                <div className="insight-item">
-                  <div className="insight-icon ok">✅</div>
-                  <div className="insight-text">
-                    <div className="insight-title">HbA1c improving</div>
-                    <div className="insight-sub">
-                      Down from 7.8% → 7.2% — keep maintaining diet
-                    </div>
-                  </div>
-                </div>
-                <div className="insight-item">
-                  <div className="insight-icon warn">📅</div>
-                  <div className="insight-text">
-                    <div className="insight-title">Follow-up overdue</div>
-                    <div className="insight-sub">
-                      Cardiology check-up 12 days overdue
-                    </div>
-                  </div>
-                </div>
-                <div className="insight-item">
-                  <div className="insight-icon info">💧</div>
-                  <div className="insight-text">
-                    <div className="insight-title">Hydration reminder</div>
-                    <div className="insight-sub">
-                      Summer heat — ensure 2.5L water intake daily
-                    </div>
-                  </div>
-                </div>
-              </div>
+          <div className="card">
+            <div className="card-title">
+              <div className="card-title-icon">📋</div> Health Record Timeline
             </div>
-
-            <div className="card">
-              <div className="card-title">
-                <div className="card-title-icon">📋</div> Health Record Timeline
+            <div className="records-timeline scrollable">
+              <div className="record-item">
+                <div className="record-timeline-col">
+                  <div className="record-dot"></div>
+                  <div className="record-line"></div>
+                </div>
+                <div className="record-content">
+                  <div className="record-header">
+                    <div className="record-type">🩺 Consultation</div>
+                    <div className="record-date">Mar 10, 2026</div>
+                  </div>
+                  <div className="record-doctor">
+                    Dr. S. Mehta · Diabetology
+                  </div>
+                  <div className="record-desc">
+                    BP controlled. HbA1c improving. Continue current meds.
+                    Follow up in 3 weeks.
+                  </div>
+                </div>
               </div>
-              <div className="records-timeline scrollable">
-                <div className="record-item">
-                  <div className="record-timeline-col">
-                    <div className="record-dot"></div>
-                    <div className="record-line"></div>
+              <div className="record-item">
+                <div className="record-timeline-col">
+                  <div
+                    className="record-dot"
+                    style={{
+                      background: "var(--teal)",
+                      boxShadow: "0 0 0 2px var(--teal)",
+                    }}
+                  ></div>
+                  <div className="record-line"></div>
+                </div>
+                <div className="record-content">
+                  <div className="record-header">
+                    <div className="record-type">🧪 Lab Report</div>
+                    <div className="record-date">Mar 5, 2026</div>
                   </div>
-                  <div className="record-content">
-                    <div className="record-header">
-                      <div className="record-type">🩺 Consultation</div>
-                      <div className="record-date">Mar 10, 2026</div>
-                    </div>
-                    <div className="record-doctor">
-                      Dr. S. Mehta · Diabetology
-                    </div>
-                    <div className="record-desc">
-                      BP controlled. HbA1c improving. Continue current meds.
-                      Follow up in 3 weeks.
-                    </div>
+                  <div className="record-doctor">City Diagnostics Lab</div>
+                  <div className="record-desc">
+                    HbA1c: 7.2%, Creatinine: 0.9, Cholesterol: 178 mg/dL. All
+                    within range.
                   </div>
                 </div>
-                <div className="record-item">
-                  <div className="record-timeline-col">
-                    <div
-                      className="record-dot"
-                      style={{
-                        background: "var(--teal)",
-                        boxShadow: "0 0 0 2px var(--teal)",
-                      }}
-                    ></div>
-                    <div className="record-line"></div>
+              </div>
+              <div className="record-item">
+                <div className="record-timeline-col">
+                  <div
+                    className="record-dot"
+                    style={{
+                      background: "var(--amber)",
+                      boxShadow: "0 0 0 2px var(--amber)",
+                    }}
+                  ></div>
+                  <div className="record-line"></div>
+                </div>
+                <div className="record-content">
+                  <div className="record-header">
+                    <div className="record-type">💊 Prescription</div>
+                    <div className="record-date">Feb 18, 2026</div>
                   </div>
-                  <div className="record-content">
-                    <div className="record-header">
-                      <div className="record-type">🧪 Lab Report</div>
-                      <div className="record-date">Mar 5, 2026</div>
-                    </div>
-                    <div className="record-doctor">City Diagnostics Lab</div>
-                    <div className="record-desc">
-                      HbA1c: 7.2%, Creatinine: 0.9, Cholesterol: 178 mg/dL. All
-                      within range.
-                    </div>
+                  <div className="record-doctor">
+                    Dr. R. Nair · Cardiologist
+                  </div>
+                  <div className="record-desc">
+                    Amlodipine 5mg added for hypertension management. Monitor
+                    BP daily.
                   </div>
                 </div>
-                <div className="record-item">
-                  <div className="record-timeline-col">
-                    <div
-                      className="record-dot"
-                      style={{
-                        background: "var(--amber)",
-                        boxShadow: "0 0 0 2px var(--amber)",
-                      }}
-                    ></div>
-                    <div className="record-line"></div>
-                  </div>
-                  <div className="record-content">
-                    <div className="record-header">
-                      <div className="record-type">💊 Prescription</div>
-                      <div className="record-date">Feb 18, 2026</div>
-                    </div>
-                    <div className="record-doctor">
-                      Dr. R. Nair · Cardiologist
-                    </div>
-                    <div className="record-desc">
-                      Amlodipine 5mg added for hypertension management. Monitor
-                      BP daily.
-                    </div>
-                  </div>
+              </div>
+              <div className="record-item">
+                <div className="record-timeline-col">
+                  <div
+                    className="record-dot"
+                    style={{
+                      background: "var(--text3)",
+                      boxShadow: "0 0 0 2px var(--text3)",
+                    }}
+                  ></div>
                 </div>
-                <div className="record-item">
-                  <div className="record-timeline-col">
-                    <div
-                      className="record-dot"
-                      style={{
-                        background: "var(--text3)",
-                        boxShadow: "0 0 0 2px var(--text3)",
-                      }}
-                    ></div>
+                <div className="record-content">
+                  <div className="record-header">
+                    <div className="record-type">🏥 Emergency Visit</div>
+                    <div className="record-date">Jan 8, 2026</div>
                   </div>
-                  <div className="record-content">
-                    <div className="record-header">
-                      <div className="record-type">🏥 Emergency Visit</div>
-                      <div className="record-date">Jan 8, 2026</div>
-                    </div>
-                    <div className="record-doctor">
-                      Apollo Hospital, Chennai
-                    </div>
-                    <div className="record-desc">
-                      Chest pain episode — ruled out cardiac event. Stress ECG
-                      normal.
-                    </div>
+                  <div className="record-doctor">
+                    Apollo Hospital, Chennai
+                  </div>
+                  <div className="record-desc">
+                    Chest pain episode — ruled out cardiac event. Stress ECG
+                    normal.
                   </div>
                 </div>
               </div>
@@ -1306,8 +1335,8 @@ function App() {
 
       {/* Insurance Verified Data Modal */}
       {showInsuranceModal && insuranceDetails && (
-        <div 
-          className="modal-overlay active" 
+        <div
+          className="modal-overlay active"
           onClick={() => setShowInsuranceModal(false)}
         >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -1326,7 +1355,7 @@ function App() {
                   http://hapi.fhir.org/baseR4/Coverage/{insuranceDetails.rawFhirId || insuranceDetails.insuranceId}
                 </div>
               </div>
-              
+
               <h4>Parsed Profile Data</h4>
               <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "20px", fontSize: "14px" }}>
                 <tbody>
@@ -1358,7 +1387,6 @@ function App() {
                   </tr>
                 </tbody>
               </table>
-              
               <div style={{ textAlign: "right" }}>
                 <button className="btn btn-primary" onClick={() => setShowInsuranceModal(false)}>
                   Close
@@ -1371,19 +1399,19 @@ function App() {
 
       {/* AI Schemes Recommendation Modal */}
       {showSchemesModal && (
-        <div 
-          className="modal-overlay active" 
+        <div
+          className="modal-overlay active"
           onClick={() => setShowSchemesModal(false)}
         >
           <div className="modal-content" style={{ maxWidth: "900px", width: "95%" }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3><span style={{marginRight: "8px"}}>🤖</span> Smart Health Scheme Recommendations</h3>
+              <h3><span style={{ marginRight: "8px" }}>🤖</span> Smart Health Scheme Recommendations</h3>
               <button className="modal-close" onClick={() => setShowSchemesModal(false)}>
                 ×
               </button>
             </div>
             <div className="modal-body" style={{ maxHeight: "80vh", overflowY: "auto", padding: "20px" }}>
-              
+
               {/* SECTION 1: ALL AVAILABLE SCHEMES */}
               <div style={{ marginBottom: "32px" }}>
                 <h4 style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--text)", marginBottom: "16px", fontSize: "18px" }}>
@@ -1392,16 +1420,16 @@ function App() {
                 </h4>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "16px" }}>
                   {eligibleSchemes.availableSchemes?.map((scheme, idx) => (
-                    <div key={idx} style={{ 
-                      background: "var(--surface2)", 
-                      border: "1px solid var(--border)", 
-                      borderRadius: "10px", 
+                    <div key={idx} style={{
+                      background: "var(--surface2)",
+                      border: "1px solid var(--border)",
+                      borderRadius: "10px",
                       padding: "16px",
                       position: "relative"
                     }}>
                       <div style={{ fontSize: "11px", color: "var(--text3)", fontWeight: "600", marginBottom: "4px" }}>{scheme.id}</div>
                       <div style={{ fontWeight: "700", color: "var(--text)", fontSize: "14px", marginBottom: "8px" }}>{scheme.name}</div>
-                      <div style={{ fontSize: "12px", color: "var(--text2)", marginBottom: "12px" }}>Limit: <b style={{color: "var(--teal)"}}>{scheme.coverageLimit}</b></div>
+                      <div style={{ fontSize: "12px", color: "var(--text2)", marginBottom: "12px" }}>Limit: <b style={{ color: "var(--teal)" }}>{scheme.coverageLimit}</b></div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
                         {scheme.highlights?.map((h, i) => (
                           <span key={i} style={{ fontSize: "10px", background: "white", padding: "2px 6px", borderRadius: "4px", border: "1px solid var(--border2)" }}>{h}</span>
@@ -1434,9 +1462,9 @@ function App() {
                           <td style={{ padding: "14px 16px" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                               <div style={{ flex: 1, height: "8px", background: "var(--surface2)", borderRadius: "4px", overflow: "hidden" }}>
-                                <div style={{ 
-                                  width: `${scheme.eligibilityPercentage}%`, 
-                                  height: "100%", 
+                                <div style={{
+                                  width: `${scheme.eligibilityPercentage}%`,
+                                  height: "100%",
                                   background: scheme.eligibilityPercentage >= 80 ? "var(--teal)" : scheme.eligibilityPercentage >= 60 ? "var(--amber)" : "var(--red)",
                                   borderRadius: "4px"
                                 }}></div>
@@ -1445,7 +1473,7 @@ function App() {
                             </div>
                           </td>
                           <td style={{ padding: "14px 16px" }}>
-                            <span style={{ 
+                            <span style={{
                               padding: "4px 8px", borderRadius: "6px", fontSize: "11px", fontWeight: "700",
                               background: scheme.eligibilityPercentage >= 80 ? "rgba(16, 185, 129, 0.1)" : "rgba(245, 158, 11, 0.1)",
                               color: scheme.eligibilityPercentage >= 80 ? "var(--teal)" : "var(--amber)"
@@ -1468,10 +1496,10 @@ function App() {
                 </h4>
                 <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                   {eligibleSchemes.analyzedSchemes?.map((scheme, idx) => (
-                    <div key={idx} style={{ 
-                      background: scheme.eligibilityPercentage >= 85 ? "linear-gradient(to right, #fff, var(--surface2))" : "white", 
-                      border: scheme.eligibilityPercentage >= 85 ? "2px solid var(--teal)" : "1px solid var(--border)", 
-                      borderRadius: "12px", 
+                    <div key={idx} style={{
+                      background: scheme.eligibilityPercentage >= 85 ? "linear-gradient(to right, #fff, var(--surface2))" : "white",
+                      border: scheme.eligibilityPercentage >= 85 ? "2px solid var(--teal)" : "1px solid var(--border)",
+                      borderRadius: "12px",
                       padding: "20px",
                       boxShadow: scheme.eligibilityPercentage >= 85 ? "0 4px 15px rgba(16, 185, 129, 0.1)" : "none"
                     }}>
@@ -1508,8 +1536,8 @@ function App() {
 
       {/* Insurance Claim Submission Form Modal */}
       {showClaimForm && selectedSchemeForClaim && (
-        <div 
-          className="modal-overlay active" 
+        <div
+          className="modal-overlay active"
           onClick={() => setShowClaimForm(false)}
         >
           <div className="modal-content" style={{ maxWidth: "500px" }} onClick={(e) => e.stopPropagation()}>
@@ -1530,22 +1558,22 @@ function App() {
                 <label style={{ display: "block", fontSize: "13px", fontWeight: "600", marginBottom: "8px" }}>Claim Amount (Requested)</label>
                 <div style={{ position: "relative" }}>
                   <span style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", fontWeight: "700" }}>₹</span>
-                  <input 
-                    type="text" 
-                    className="input-field" 
-                    placeholder="e.g. 15,000" 
+                  <input
+                    type="text"
+                    className="input-field"
+                    placeholder="e.g. 15,000"
                     value={claimAmount}
                     onChange={(e) => setClaimAmount(e.target.value)}
-                    style={{ paddingLeft: "30px", fontSize: "16px", fontWeight: "700" }} 
+                    style={{ paddingLeft: "30px", fontSize: "16px", fontWeight: "700" }}
                   />
                 </div>
               </div>
 
               <div style={{ marginBottom: "20px" }}>
                 <label style={{ display: "block", fontSize: "13px", fontWeight: "600", marginBottom: "8px" }}>Reason for Claim / Medical Notes</label>
-                <textarea 
-                  className="input-field" 
-                  rows="4" 
+                <textarea
+                  className="input-field"
+                  rows="4"
                   placeholder="Describe why you are filing this claim (symptoms, hospital visit details...)"
                   value={claimReason}
                   onChange={(e) => setClaimReason(e.target.value)}
@@ -1557,8 +1585,8 @@ function App() {
                 <b>ℹ️ Smart Documentation:</b> By clicking submit, the relevant medical records from your timeline will be automatically securely shared with {insuranceDetails?.provider} as proof of claim.
               </div>
 
-              <button 
-                className="btn btn-primary" 
+              <button
+                className="btn btn-primary"
                 style={{ width: "100%", padding: "14px", fontSize: "15px" }}
                 onClick={handleSubmitClaim}
                 disabled={submittingClaim}
@@ -1746,7 +1774,7 @@ function App() {
                             return adherence?.taken || med.taken;
                           }).length /
                             meds.length) *
-                            100,
+                          100,
                         )}
                         %
                       </div>
@@ -1806,7 +1834,7 @@ function App() {
               <input
                 className="form-input"
                 type="text"
-                value="HID-TN-20240847"
+                defaultValue="HID-TN-20240847"
               />
             </div>
             <div className="form-row">
@@ -1936,6 +1964,45 @@ function App() {
               </div>
             </div>
           </div>
+
+          <div className="card">
+            <div className="card-title" style={{ color: "var(--teal)" }}>
+              <div className="card-title-icon">👥</div> My Patient Queue
+            </div>
+            {queueLoading ? (
+              <div style={{ textAlign: "center", padding: "20px", color: "var(--text2)" }}>Loading queue...</div>
+            ) : patientQueue.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "20px", color: "var(--text2)" }}>No patients in queue.</div>
+            ) : (
+              <div className="doctor-ids">
+                {patientQueue.map((patient, index) => (
+                  <div
+                    key={patient.appointmentId}
+                    className={`doc-id-row ${patient.isEmergency ? "emergency-row" : ""}`}
+                    style={{ cursor: "pointer", borderLeft: patient.isEmergency ? "3px solid var(--red)" : index === 0 ? "3px solid var(--teal)" : "3px solid transparent", transition: "all 0.2s", background: patient.isEmergency ? "var(--red-light)" : "" }}
+                    onClick={() => {
+                      setFetchHealthId(patient.patientId);
+                      // Using a timeout allows state to update before fetching
+                      setTimeout(() => {
+                        document.getElementById('fetch-summary-btn').click();
+                      }, 50);
+                    }}
+                    onMouseEnter={(e) => { if (!patient.isEmergency) e.currentTarget.style.background = 'var(--surface2)'; }}
+                    onMouseLeave={(e) => { if (!patient.isEmergency) e.currentTarget.style.background = 'var(--surface)'; }}
+                  >
+                    <div className="doc-id-avatar" style={{ fontSize: "20px" }}>{patient.isEmergency ? "🚨" : index + 1}</div>
+                    <div className="doc-id-info">
+                      <div className="doc-id-name" style={{ color: patient.isEmergency ? "var(--red)" : "inherit" }}>
+                        {patient.patientName} {patient.isEmergency && <span style={{ fontSize: "12px", fontWeight: "bold", color: "var(--red)", marginLeft: "4px", padding: "2px 6px", background: "rgba(220,38,38,0.1)", borderRadius: "4px" }}>EMERGENCY</span>}
+                      </div>
+                      <div className="doc-id-spec">{patient.time} · {patient.reason}</div>
+                    </div>
+                    <div className="doc-id-badge" style={{ color: patient.isEmergency ? "var(--red)" : "var(--blue)" }}>{patient.patientId}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="card span-2">
@@ -1974,6 +2041,7 @@ function App() {
                 onChange={(e) => setFetchHealthId(e.target.value)}
               />
               <button
+                id="fetch-summary-btn"
                 className="btn btn-primary"
                 onClick={handleFetchSummary}
                 disabled={summaryLoading}
@@ -2193,9 +2261,9 @@ function App() {
               style={
                 recording
                   ? {
-                      background:
-                        "linear-gradient(135deg, var(--red), #f87171)",
-                    }
+                    background:
+                      "linear-gradient(135deg, var(--red), #f87171)",
+                  }
                   : {}
               }
             >
@@ -2360,6 +2428,143 @@ function App() {
               Critical data cached locally. SMS alerts queue and send when
               internet restores.
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div
+        id="view-employee"
+        className={`app ${activeView === "employee" ? "active" : ""}`}
+      >
+        <div className="card" style={{ maxWidth: "1000px", margin: "0 auto", width: "100%" }}>
+          <div className="card-title">
+            <div className="card-title-icon">🏥</div> Hospital Portal - Appointment Management
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", marginBottom: "24px" }}>
+            <div className="card" style={{ marginBottom: 0 }}>
+              <div className="card-title" style={{ fontSize: "16px", padding: "12px 16px" }}>
+                <div className="card-title-icon">👨‍⚕️</div> Doctor Directory
+              </div>
+              <div className="doctor-ids" style={{ maxHeight: "250px", overflowY: "auto" }}>
+                {doctorsLoading ? (
+                  <div style={{ textAlign: "center", padding: "20px", color: "var(--text2)" }}>Loading directory...</div>
+                ) : (
+                  doctorsList.map(doc => (
+                    <div key={doc.id} className="doc-id-row">
+                      <div className="doc-id-avatar">{doc.avatar || "👨‍⚕️"}</div>
+                      <div className="doc-id-info">
+                        <div className="doc-id-name">{doc.name}</div>
+                        <div className="doc-id-spec">{doc.specialty} · {doc.experience}</div>
+                      </div>
+                      <div className="doc-id-badge" style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                        <span style={{ fontSize: "11px", color: "var(--text2)" }}>Queue</span>
+                        <span style={{ fontSize: "16px", color: doc.activeQueueLength > 3 ? "var(--red)" : "var(--teal)" }}>{doc.activeQueueLength}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div>
+              <div className="hospital-select-container" style={{ margin: 0, height: "100%", flexDirection: "column", alignItems: "flex-start", justifyContent: "center", padding: "30px" }}>
+                <span className="hospital-select-label" style={{ fontSize: "18px", marginBottom: "16px" }}>🏥 Select Hospital Facility:</span>
+                <select
+                  className="select-doctor"
+                  style={{ width: "100%", maxWidth: "100%", fontSize: "16px", padding: "14px", margin: 0 }}
+                  value={selectedHospital}
+                  onChange={(e) => setSelectedHospital(e.target.value)}
+                >
+                  <option value="HOSP-TN-001">Apollo Hospital Chennai (HOSP-TN-001)</option>
+                  <option value="HOSP-TN-044">Ambattur PHC (HOSP-TN-044)</option>
+                </select>
+                <div style={{ marginTop: "16px", color: "var(--text2)", fontSize: "13px", lineHeight: "1.5" }}>
+                  Select a facility to view incoming patient appointments and route them accurately to the appropriate medical professionals.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="appointment-list">
+          </div>
+
+          <div className="appointment-list">
+            {appointmentsLoading ? (
+              <div style={{ textAlign: "center", padding: "30px", color: "var(--text2)" }}>Loading appointments...</div>
+            ) : hospitalAppointments.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "30px", color: "var(--text2)" }}>No appointments scheduled for this hospital.</div>
+            ) : (
+              <div className="appointment-grid">
+                {hospitalAppointments.map((apt) => (
+                  <div key={apt.id} className="appointment-card">
+                    <div className="appointment-header">
+                      <div className="appointment-time">
+                        <span style={{ fontSize: "20px" }}>🕒</span> {apt.time}
+                      </div>
+                      <div className={`appointment-status ${apt.status === 'Assigned' ? 'assigned' : 'pending'}`}>
+                        {apt.status}
+                      </div>
+                    </div>
+
+                    <div className="appointment-body">
+                      <div>
+                        <div className="appointment-patient">{apt.patientName}</div>
+                        <div className="appointment-hid">{apt.patientId}</div>
+                      </div>
+
+                      <div className="appointment-reason">
+                        <span style={{ fontSize: "16px" }}>📋</span>
+                        <span>{apt.reason}</span>
+                      </div>
+                    </div>
+
+                    <div className="appointment-actions">
+                      <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "4px" }}>
+                        <input
+                          type="checkbox"
+                          id={`emergency-${apt.id}`}
+                          checked={appointmentForms[apt.id]?.isEmergency || false}
+                          onChange={(e) => setAppointmentForms(prev => ({
+                            ...prev,
+                            [apt.id]: { ...prev[apt.id], isEmergency: e.target.checked }
+                          }))}
+                          disabled={apt.status === 'Assigned'}
+                          style={{ width: "16px", height: "16px", accentColor: "var(--red)", cursor: "pointer" }}
+                        />
+                        <label htmlFor={`emergency-${apt.id}`} style={{ fontSize: "13px", fontWeight: "600", color: "var(--red)", cursor: "pointer" }}>🚨 Mark as Emergency</label>
+                      </div>
+                      <select
+                        className="select-doctor"
+                        defaultValue={apt.doctorAssigned || ""}
+                        id={`assign-doctor-${apt.id}`}
+                        disabled={apt.status === 'Assigned'}
+                      >
+                        <option value="" disabled>Select Doctor to Assign...</option>
+                        {doctorsList.map(doc => (
+                          <option key={doc.id} value={doc.id}>
+                            {doc.name} (Queue: {doc.activeQueueLength})
+                          </option>
+                        ))}
+                      </select>
+
+                      <button
+                        className={`btn ${apt.status === 'Assigned' ? 'btn-secondary' : appointmentForms[apt.id]?.isEmergency ? 'btn-red' : 'btn-primary'}`}
+                        style={{ padding: "12px", fontSize: "14px", fontWeight: "700" }}
+                        disabled={apt.status === 'Assigned'}
+                        onClick={() => {
+                          const selectEl = document.getElementById(`assign-doctor-${apt.id}`);
+                          const isEmergency = appointmentForms[apt.id]?.isEmergency || false;
+                          handleAssignDoctor(apt.id, selectEl.value, isEmergency);
+                        }}
+                      >
+                        {apt.status === 'Assigned' ? '✓ Assigned Securely' : appointmentForms[apt.id]?.isEmergency ? '🚨 Assign Emergency' : 'Assign Patient to Doctor'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
