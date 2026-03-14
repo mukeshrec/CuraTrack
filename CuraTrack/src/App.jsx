@@ -714,23 +714,6 @@ function App() {
               <span className="allergy-tag">Shellfish</span>
             </div>
           </div>
-
-          <div className="card">
-            <div className="card-title">
-              <div className="card-title-icon">🤖</div> AI Health Summary
-            </div>
-            <div className="ai-summary-box">
-              <div className="ai-label">✦ AI Analysis</div>
-              <div className="ai-text">
-                Patient shows{" "}
-                <strong style={{ color: "var(--amber)" }}>
-                  moderate adherence
-                </strong>{" "}
-                (78%). BP slightly elevated this week. HbA1c improving.
-                Recommend follow-up with Dr. Mehta within 7 days.
-              </div>
-            </div>
-          </div>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
@@ -922,57 +905,6 @@ function App() {
             </div>
           </div>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: "18px",
-            }}
-          >
-            <div className="card">
-              <div className="card-title">
-                <div className="card-title-icon">🔮</div> AI Risk Alerts
-              </div>
-              <div className="insight-list scrollable">
-                <div className="insight-item">
-                  <div className="insight-icon warn">⚠️</div>
-                  <div className="insight-text">
-                    <div className="insight-title">Medication skip pattern</div>
-                    <div className="insight-sub">
-                      Evening dose missed 3× this week — BP risk increases
-                    </div>
-                  </div>
-                </div>
-                <div className="insight-item">
-                  <div className="insight-icon ok">✅</div>
-                  <div className="insight-text">
-                    <div className="insight-title">HbA1c improving</div>
-                    <div className="insight-sub">
-                      Down from 7.8% → 7.2% — keep maintaining diet
-                    </div>
-                  </div>
-                </div>
-                <div className="insight-item">
-                  <div className="insight-icon warn">📅</div>
-                  <div className="insight-text">
-                    <div className="insight-title">Follow-up overdue</div>
-                    <div className="insight-sub">
-                      Cardiology check-up 12 days overdue
-                    </div>
-                  </div>
-                </div>
-                <div className="insight-item">
-                  <div className="insight-icon info">💧</div>
-                  <div className="insight-text">
-                    <div className="insight-title">Hydration reminder</div>
-                    <div className="insight-sub">
-                      Summer heat — ensure 2.5L water intake daily
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
             <div className="card">
               <div className="card-title">
                 <div className="card-title-icon">📋</div> Health Record Timeline
@@ -1071,7 +1003,6 @@ function App() {
                 </div>
               </div>
             </div>
-          </div>
 
           <div className="card">
             <div className="card-title">
