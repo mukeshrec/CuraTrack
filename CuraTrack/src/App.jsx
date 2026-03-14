@@ -94,6 +94,22 @@ function App() {
   const [patientQueue, setPatientQueue] = useState([]);
   const [queueLoading, setQueueLoading] = useState(false);
   const loggedInDoctorId = "DID-TN-0081"; // Mock logged-in doctor
+  
+  // New states for Practo Integration & Offline Helpline
+  const [practoHospitals, setPractoHospitals] = useState([]);
+  const [helpline, setHelpline] = useState("1800-500-PRACTO-HELP");
+  const [practoLoading, setPractoLoading] = useState(false);
+  const [showHelplineModal, setShowHelplineModal] = useState(false);
+
+  // New states for Real-time Booking
+  const [showBookingModal, setShowBookingModal] = useState(false);
+  const [selectedHospitalForBooking, setSelectedHospitalForBooking] = useState(null);
+  const [doctorsForBooking, setDoctorsForBooking] = useState([]);
+  const [selectedDoctorForBooking, setSelectedDoctorForBooking] = useState(null);
+  const [selectedSlotForBooking, setSelectedSlotForBooking] = useState("");
+  const [bookingLoading, setBookingLoading] = useState(false);
+  const [bookingComplete, setBookingComplete] = useState(false);
+  const [bookingDetails, setBookingDetails] = useState(null);
 
   useEffect(() => {
     // Initial notifications mock
@@ -140,9 +156,10 @@ function App() {
       });
     }, 60000); // Check every minute
 
-    // Fetch prescriptions on component mount
+    // Fetch data on component mount
     fetchPrescriptions();
     fetchClaims();
+    fetchPractoHospitals();
 
     return () => {
       clearTimeout(t1);
@@ -464,9 +481,85 @@ function App() {
     try {
       const res = await fetch("http://localhost:3001/api/patient/HID-TN-20240847/claims");
       const data = await res.json();
-      if (data.success) setClaims(data.claims);
+      if (data.claims) setClaims(data.claims);
     } catch (err) {
       console.error("Failed to fetch claims:", err);
+    }
+  };
+
+  const fetchPractoHospitals = async () => {
+    setPractoLoading(true);
+    try {
+      const res = await fetch("http://localhost:3001/api/practo/hospitals");
+      const data = await res.json();
+      if (data.hospitals) setPractoHospitals(data.hospitals);
+      if (data.helpline) setHelpline(data.helpline);
+    } catch (err) {
+      console.error("Error fetching Practo hospitals:", err);
+      addNotification("❌", "Sync Failed", "Could not connect to Practo API Network");
+    } finally {
+      setPractoLoading(false);
+    }
+  };
+
+  const initiatePractoBooking = async (hospital) => {
+    setSelectedHospitalForBooking(hospital);
+    setBookingLoading(true);
+    setBookingComplete(false);
+    setShowBookingModal(true);
+    setSelectedDoctorForBooking(null);
+    setSelectedSlotForBooking("");
+    
+    try {
+      const res = await fetch(`http://localhost:3001/api/practo/hospitals/${hospital.id}/doctors`);
+      const data = await res.json();
+      if (data.success) {
+        setDoctorsForBooking(data.doctors);
+      } else {
+        addNotification("❌", "Error", "Failed to fetch doctors for this hospital");
+      }
+    } catch (err) {
+      console.error("Booking error:", err);
+      addNotification("❌", "Error", "Could not reach Practo Booking Engine");
+    } finally {
+      setBookingLoading(false);
+    }
+  };
+
+  const confirmPractoBooking = async () => {
+    if (!selectedDoctorForBooking || !selectedSlotForBooking) return;
+    
+    setBookingLoading(true);
+    try {
+      const res = await fetch("http://localhost:3001/api/practo/appointments/book", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          hospitalId: selectedHospitalForBooking.id,
+          doctorId: selectedDoctorForBooking.id,
+          slot: selectedSlotForBooking,
+          patientName: "Rajan Kumar" // Simulated logged-in patient
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBookingComplete(true);
+        setBookingDetails({
+          id: data.bookingId,
+          hospital: selectedHospitalForBooking.name,
+          doctor: selectedDoctorForBooking.name,
+          slot: selectedSlotForBooking,
+          message: data.confirmationMessage
+        });
+        addNotification("✅", "Booking Confirmed", `Appointment set with ${selectedDoctorForBooking.name}`);
+      } else {
+        addNotification("❌", "Booking Failed", data.error || "Could not confirm slot");
+      }
+    } catch (err) {
+      console.error("Confirm booking error:", err);
+      addNotification("❌", "Error", "Network error during booking confirmation");
+    } finally {
+      setBookingLoading(false);
     }
   };
 
@@ -1270,6 +1363,71 @@ function App() {
                     normal.
                   </div>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-title" style={{ justifyContent: "space-between" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: "7px" }}>
+                <div className="card-title-icon">🏥</div> Nearby Hospitals (via Practo)
+              </span>
+              <button 
+                className="btn btn-secondary" 
+                style={{ fontSize: "12px", padding: "6px 12px", display: "flex", alignItems: "center", gap: "6px", background: "var(--red-light)", color: "var(--red)", border: "1px solid var(--red-light)" }}
+                onClick={() => setShowHelplineModal(true)}
+              >
+                <span>📞</span> Practo Offline Helpline
+              </button>
+            </div>
+            
+            {practoLoading ? (
+              <div style={{ textAlign: "center", padding: "30px", color: "var(--text2)" }}>
+                <div className="spinner" style={{ marginBottom: "12px" }}></div>
+                Syncing with Practo Network...
+              </div>
+            ) : (
+              <div className="practo-hospital-grid">
+                {practoHospitals.map((hospital) => (
+                  <div key={hospital.id} className="practo-card">
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px" }}>
+                      <div>
+                        <div className="practo-hospital-name">{hospital.name}</div>
+                        <div className="practo-hospital-address">{hospital.address} · {hospital.distance}</div>
+                      </div>
+                      <div className="practo-rating">
+                        <span>⭐</span> {hospital.rating}
+                      </div>
+                    </div>
+                    
+                    <div className="practo-specialities">
+                      {hospital.specialities.map((spec, i) => (
+                        <span key={i} className="practo-spec-tag">{spec}</span>
+                      ))}
+                    </div>
+                    
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "16px" }}>
+                      <div style={{ fontSize: "12px", color: "var(--teal)", fontWeight: "600", display: "flex", alignItems: "center", gap: "5px" }}>
+                        <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "var(--teal)" }}></div>
+                        {hospital.availability}
+                      </div>
+                      <button 
+                        className="btn btn-primary btn-small" 
+                        style={{ fontSize: "12px" }}
+                        onClick={() => initiatePractoBooking(hospital)}
+                      >
+                        Book Visit
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            <div style={{ marginTop: "16px", padding: "12px", background: "var(--surface2)", borderRadius: "8px", display: "flex", alignItems: "center", gap: "10px" }}>
+              <div style={{ fontSize: "18px" }}>📶</div>
+              <div style={{ fontSize: "12px", color: "var(--text2)" }}>
+                <strong>No Internet?</strong> Use the <strong>"Practo Offline Helpline"</strong> button above to find direct contact numbers for hospital booking via call.
               </div>
             </div>
           </div>
@@ -2568,6 +2726,179 @@ function App() {
           </div>
         </div>
       </div>
+      {/* Real-time Practo Booking Modal */}
+      {showBookingModal && selectedHospitalForBooking && (
+        <div
+          className="modal-overlay active"
+          onClick={() => setShowBookingModal(false)}
+        >
+          <div className="modal-content" style={{ maxWidth: "500px" }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>🏥 Book Visit: {selectedHospitalForBooking.name}</h3>
+              <button className="modal-close" onClick={() => setShowBookingModal(false)}>
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              {bookingLoading && !bookingComplete ? (
+                <div style={{ textAlign: "center", padding: "40px 20px" }}>
+                  <div className="spinner" style={{ marginBottom: "15px" }}></div>
+                  <p style={{ color: "var(--text2)" }}>Processing your request...</p>
+                </div>
+              ) : bookingComplete ? (
+                <div style={{ textAlign: "center", padding: "20px 0" }}>
+                  <div style={{ width: "70px", height: "70px", background: "var(--teal-light)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", fontSize: "32px", color: "var(--teal)" }}>
+                    ✓
+                  </div>
+                  <h4 style={{ fontSize: "20px", color: "var(--teal)", marginBottom: "10px" }}>Booking Confirmed!</h4>
+                  <div style={{ background: "var(--surface2)", padding: "20px", borderRadius: "12px", border: "1px solid var(--border)", textAlign: "left", marginBottom: "20px" }}>
+                    <div style={{ fontSize: "12px", color: "var(--text2)", marginBottom: "4px" }}>Booking ID:</div>
+                    <div style={{ fontSize: "14px", fontWeight: "700", marginBottom: "12px", fontFamily: "monospace" }}>{bookingDetails.id}</div>
+                    
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "15px" }}>
+                      <div>
+                        <div style={{ fontSize: "11px", color: "var(--text2)" }}>Doctor</div>
+                        <div style={{ fontSize: "13px", fontWeight: "600" }}>{bookingDetails.doctor}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: "11px", color: "var(--text2)" }}>Time Slot</div>
+                        <div style={{ fontSize: "13px", fontWeight: "600" }}>{bookingDetails.slot}</div>
+                      </div>
+                    </div>
+                  </div>
+                  <p style={{ color: "var(--text2)", fontSize: "13px" }}>{bookingDetails.message}</p>
+                </div>
+              ) : (
+                <>
+                  {!selectedDoctorForBooking ? (
+                    <div>
+                      <h4 style={{ fontSize: "15px", marginBottom: "15px" }}>Step 1: Select a Doctor</h4>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                        {doctorsForBooking.map(doctor => (
+                          <div 
+                            key={doctor.id} 
+                            style={{ padding: "15px", background: "var(--surface2)", borderRadius: "10px", border: "1px solid var(--border)", cursor: "pointer", transition: "all 0.2s" }}
+                            onClick={() => setSelectedDoctorForBooking(doctor)}
+                            className="hover-card"
+                          >
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <div>
+                                <div style={{ fontWeight: "700", fontSize: "14px" }}>{doctor.name}</div>
+                                <div style={{ fontSize: "12px", color: "var(--text2)" }}>{doctor.specialty} · {doctor.experience} experience</div>
+                              </div>
+                              <div style={{ background: "var(--blue-light)", color: "var(--blue)", padding: "4px 8px", borderRadius: "6px", fontSize: "11px", fontWeight: "700" }}>
+                                {doctor.slots.length} slots
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "20px" }}>
+                        <button 
+                          className="btn btn-small btn-secondary" 
+                          onClick={() => { setSelectedDoctorForBooking(null); setSelectedSlotForBooking(""); }}
+                          style={{ padding: "5px" }}
+                        >
+                          ←
+                        </button>
+                        <h4 style={{ fontSize: "15px" }}>Step 2: Pick a Slot with {selectedDoctorForBooking.name}</h4>
+                      </div>
+                      
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px", marginBottom: "25px" }}>
+                        {selectedDoctorForBooking.slots.map(slot => (
+                          <button
+                            key={slot}
+                            className={`btn ${selectedSlotForBooking === slot ? 'btn-primary' : 'btn-secondary'}`}
+                            style={{ fontSize: "12px", padding: "10px 5px" }}
+                            onClick={() => setSelectedSlotForBooking(slot)}
+                          >
+                            {slot}
+                          </button>
+                        ))}
+                      </div>
+                      
+                      <div style={{ padding: "15px", background: "var(--amber-light)", borderRadius: "8px", border: "1px dashed var(--amber)", display: "flex", gap: "10px" }}>
+                        <span style={{ fontSize: "16px" }}>📝</span>
+                        <div style={{ fontSize: "12px", color: "var(--text)" }}>
+                          <b>Note:</b> This appointment is real-time. Please ensure you can visit on {new Date().toLocaleDateString()}.
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="modal-footer">
+              {!bookingComplete && (
+                <>
+                  <button className="btn btn-secondary" onClick={() => setShowBookingModal(false)}>Cancel</button>
+                  <button 
+                    className="btn btn-primary" 
+                    disabled={!selectedSlotForBooking || bookingLoading}
+                    onClick={confirmPractoBooking}
+                  >
+                    {bookingLoading ? "Confirming..." : "Confirm Booking"}
+                  </button>
+                </>
+              )}
+              {bookingComplete && (
+                <button className="btn btn-primary" style={{ width: "100%" }} onClick={() => setShowBookingModal(false)}>Done</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Practo Offline Helpline Modal */}
+      {showHelplineModal && (
+        <div
+          className="modal-overlay active"
+          onClick={() => setShowHelplineModal(false)}
+        >
+          <div className="modal-content" style={{ maxWidth: "450px", textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>📞 Practo Offline Booking</h3>
+              <button className="modal-close" onClick={() => setShowHelplineModal(false)}>
+                ×
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: "30px 20px" }}>
+              <div style={{ width: "80px", height: "80px", background: "var(--red-light)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", fontSize: "40px" }}>
+                📡
+              </div>
+              <h4 style={{ fontSize: "18px", color: "var(--text)", marginBottom: "8px" }}>No Internet? Book via Call</h4>
+              <p style={{ color: "var(--text2)", fontSize: "14px", marginBottom: "24px" }}>
+                Dial the direct numbers below to book or confirm your visit at nearby Practo-certified hospitals.
+              </p>
+              
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                {practoHospitals.map(hospital => (
+                  <div key={hospital.id} style={{ textAlign: "left", background: "var(--surface2)", padding: "16px", borderRadius: "12px", border: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div style={{ fontSize: "14px", fontWeight: "700", color: "var(--text)" }}>{hospital.name}</div>
+                      <div style={{ fontSize: "12px", color: "var(--text2)" }}>{hospital.address} · {hospital.distance}</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: "14px", fontWeight: "800", color: "var(--blue)" }}>{hospital.contactNumber}</div>
+                      <div style={{ fontSize: "10px", color: "var(--teal)", fontWeight: "600" }}>Direct Line</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              
+              <div style={{ marginTop: "24px", padding: "12px", background: "var(--blue-light)", borderRadius: "8px", color: "var(--blue)", fontSize: "12px", fontWeight: "600", display: "flex", alignItems: "center", gap: "10px" }}>
+                <span>💡</span>
+                <span>Mention your Health ID <b>HID-TN-20240847</b> during the call for priority queue.</span>
+              </div>
+            </div>
+            <div className="modal-footer" style={{ justifyContent: "center" }}>
+              <button className="btn btn-primary" style={{ width: "100%" }} onClick={() => setShowHelplineModal(false)}>Got it</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

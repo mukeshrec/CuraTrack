@@ -767,6 +767,94 @@ app.get("/api/doctor/:doctorId/queue", (req, res) => {
 });
 
 
+// Practo Integration Mock Data
+const mockPractoHospitals = [
+  {
+    id: "P-001",
+    name: "Cura Healthcare Chennai",
+    distance: "5.2 km",
+    rating: "4.8",
+    reviews: 1240,
+    address: "T Nagar, Chennai",
+    specialities: ["Cardiology", "Diabetology"],
+    availability: "Immediate",
+    practoCertified: true,
+    contactNumber: "044-2834-4500"
+  },
+  {
+    id: "P-002",
+    name: "Apollo Greams Road",
+    distance: "6.5 km",
+    rating: "4.7",
+    reviews: 3500,
+    address: "Greams Road, Chennai",
+    specialities: ["Multi-Specialty", "Emergency"],
+    availability: "15 min wait",
+    practoCertified: true,
+    contactNumber: "044-2829-3333"
+  },
+  {
+    id: "P-003",
+    name: "MGM Healthcare",
+    distance: "5.8 km",
+    rating: "4.9",
+    reviews: 800,
+    address: "Nelson Manickam Road, Chennai",
+    specialities: ["Organ Transplant", "General Medicine"],
+    availability: "Immediate",
+    practoCertified: true,
+    contactNumber: "044-4592-8500"
+  }
+];
+
+const mockPractoDoctors = {
+  "P-001": [
+    { id: "D-P1-01", name: "Dr. Arvind Swamy", specialty: "Cardiologist", experience: "15 yrs", slots: ["10:00 AM", "11:30 AM", "02:00 PM"] },
+    { id: "D-P1-02", name: "Dr. Meera Nair", specialty: "Diabetologist", experience: "10 yrs", slots: ["09:00 AM", "01:00 PM", "04:30 PM"] }
+  ],
+  "P-002": [
+    { id: "D-P2-01", name: "Dr. Rajesh Koothrappali", specialty: "Emergency Medicine", experience: "12 yrs", slots: ["08:00 AM", "10:00 AM", "12:00 PM"] },
+    { id: "D-P2-02", name: "Dr. Priya Sharma", specialty: "General Surgeon", experience: "18 yrs", slots: ["03:00 PM", "05:00 PM", "07:00 PM"] }
+  ],
+  "P-003": [
+    { id: "D-P3-01", name: "Dr. Sanjay Gupta", specialty: "Internal Medicine", experience: "20 yrs", slots: ["11:00 AM", "01:00 PM", "03:00 PM"] },
+    { id: "D-P3-02", name: "Dr. Anjali Patil", specialty: "Transplant Surgeon", experience: "14 yrs", slots: ["09:30 AM", "12:30 PM", "04:00 PM"] }
+  ]
+};
+
+// Get Practo Hospitals
+app.get("/api/practo/hospitals", (req, res) => {
+  res.json({ 
+    hospitals: mockPractoHospitals,
+    helpline: "1800-500-PRACTO-HELP",
+    message: "Data synced via Practo Connect"
+  });
+});
+
+// Get Doctors for a Hospital
+app.get("/api/practo/hospitals/:hospitalId/doctors", (req, res) => {
+  const { hospitalId } = req.params;
+  const doctors = mockPractoDoctors[hospitalId] || [];
+  res.json({ success: true, doctors });
+});
+
+// Book Appointment
+app.post("/api/practo/appointments/book", (req, res) => {
+  const { hospitalId, doctorId, slot, patientName } = req.body;
+  
+  if (!hospitalId || !doctorId || !slot) {
+    return res.status(400).json({ success: false, error: "Missing required booking details" });
+  }
+
+  // Simulate booking success
+  const bookingId = "PRAC-" + Math.random().toString(36).substr(2, 9).toUpperCase();
+  res.json({ 
+    success: true, 
+    bookingId,
+    confirmationMessage: `Slot confirmed at ${slot}. Please arrive 10 mins early.`
+  });
+});
+
 const PORT = 3001;
 app.listen(PORT, () => {
   console.log(`Backend server running on http://localhost:${PORT}`);
