@@ -73,7 +73,71 @@ const mockPatients = {
       },
     ],
   },
+  "HID-TN-20240955": {
+    name: "Anita Sharma",
+    age: 45,
+    gender: "Female",
+    bloodGroup: "A+",
+    conditions: ["Asthma"],
+    allergies: ["Dust"],
+    medications: [
+      { name: "Salbutamol Inhaler", dosage: "100mcg", frequency: "As needed" },
+    ],
+    history: [
+      {
+        date: "2026-02-15",
+        type: "Consultation",
+        doctor: "Dr. Arjun Rajan",
+        notes: "Mild wheezing. Continue inhaler.",
+      },
+    ],
+  },
+  "HID-TN-20241012": {
+    name: "Vikram Singh",
+    age: 52,
+    gender: "Male",
+    bloodGroup: "B-",
+    conditions: ["Hypertension"],
+    allergies: [],
+    medications: [
+      { name: "Lisinopril", dosage: "10mg", frequency: "Once daily" },
+    ],
+    history: [
+      {
+        date: "2026-01-20",
+        type: "Consultation",
+        doctor: "Dr. Priya Nair",
+        notes: "BP slightly elevated. Increased dosage.",
+      },
+    ],
+  },
 };
+
+// Mock Hospital Appointments
+const mockAppointments = {
+  "HOSP-TN-001": [ // Apollo Hospital
+    { id: "APT-001", patientId: "HID-TN-20240847", patientName: "Rajan Kumar", time: "10:00 AM", reason: "Follow-up for Diabetes", status: "Pending", doctorAssigned: null },
+    { id: "APT-002", patientId: "HID-TN-20240955", patientName: "Anita Sharma", time: "11:30 AM", reason: "Breathing difficulty", status: "Pending", doctorAssigned: null },
+  ],
+  "HOSP-TN-044": [ // Ambattur PHC
+    { id: "APT-003", patientId: "HID-TN-20241012", patientName: "Vikram Singh", time: "09:15 AM", reason: "Routine BP Check", status: "Pending", doctorAssigned: null },
+  ]
+};
+
+// Initial state for Doctor Queue
+// Structure: { doctorId: [ { appointmentId, patientId, patientName, time, reason, status, isEmergency } ] }
+const doctorQueue = {
+  "DID-TN-0081": [], // Dr. Suresh Mehta
+  "DID-TN-0124": [], // Dr. Priya Nair
+  "DID-TN-0209": []  // Dr. Arjun Rajan
+};
+
+// Mock Doctors Directory
+const mockDoctors = [
+  { id: "DID-TN-0081", name: "Dr. Suresh Mehta", specialty: "Diabetology", experience: "15+ Years", status: "On-call until 8 PM", avatar: "👨‍⚕️" },
+  { id: "DID-TN-0124", name: "Dr. Priya Nair", specialty: "Cardiology", experience: "12+ Years", status: "Available", avatar: "👩‍⚕️" },
+  { id: "DID-TN-0209", name: "Dr. Arjun Rajan", specialty: "General Medicine", experience: "8+ Years", status: "Available", avatar: "👨‍⚕️" },
+];
 
 // Helper to clean up uploaded files
 const cleanupFile = (filePath) => {
@@ -455,6 +519,78 @@ app.get(
     res.json({ adherence: medicationAdherence[patientId][medicationId] });
   },
 );
+
+// --- New Routes for Hospital Employee and Doctor Queue ---
+
+// Get Appointments for a specific hospital
+app.get("/api/hospital/:hospitalId/appointments", (req, res) => {
+  const { hospitalId } = req.params;
+  const appointments = mockAppointments[hospitalId] || [];
+  res.json({ appointments });
+});
+
+// Get Detailed Doctor List with active queue metadata
+app.get("/api/doctors", (req, res) => {
+  const doctorsWithQueueLength = mockDoctors.map((doc) => ({
+    ...doc,
+    activeQueueLength: doctorQueue[doc.id] ? doctorQueue[doc.id].length : 0
+  }));
+  res.json({ doctors: doctorsWithQueueLength });
+});
+
+// Assign a patient/appointment to a doctor
+app.post("/api/appointments/assign", (req, res) => {
+  const { hospitalId, appointmentId, doctorId, isEmergency } = req.body;
+
+  if (!mockAppointments[hospitalId]) {
+    return res.status(404).json({ error: "Hospital not found" });
+  }
+
+  const appointmentIndex = mockAppointments[hospitalId].findIndex(a => a.id === appointmentId);
+  
+  if (appointmentIndex === -1) {
+    return res.status(404).json({ error: "Appointment not found" });
+  }
+
+  // Update appointment status and assigned doctor
+  mockAppointments[hospitalId][appointmentIndex].status = "Assigned";
+  mockAppointments[hospitalId][appointmentIndex].doctorAssigned = doctorId;
+  mockAppointments[hospitalId][appointmentIndex].isEmergency = isEmergency || false;
+
+  const assignedAppointment = mockAppointments[hospitalId][appointmentIndex];
+
+  // Add to doctor's queue if it doesn't already exist
+  if (!doctorQueue[doctorId]) {
+      doctorQueue[doctorId] = [];
+  }
+  
+  // Check if patient is already in the queue to avoid duplicates
+  const alreadyInQueue = doctorQueue[doctorId].some(item => item.appointmentId === appointmentId);
+  if(!alreadyInQueue) {
+      if (isEmergency) {
+        // Unshift emergency patients to the very top of the queue
+         doctorQueue[doctorId].unshift({
+           ...assignedAppointment,
+           status: "In Queue"
+         });
+      } else {
+         doctorQueue[doctorId].push({
+           ...assignedAppointment,
+           status: "In Queue"
+         });
+      }
+  }
+
+  res.json({ success: true, message: "Patient assigned to doctor successfully", appointment: assignedAppointment });
+});
+
+// Get Doctor's Queue
+app.get("/api/doctor/:doctorId/queue", (req, res) => {
+  const { doctorId } = req.params;
+  const queue = doctorQueue[doctorId] || [];
+  res.json({ queue });
+});
+
 
 const PORT = 3001;
 app.listen(PORT, () => {

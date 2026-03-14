@@ -6,6 +6,7 @@ function App() {
   const [activeView, setActiveView] = useState("patient");
   const [recording, setRecording] = useState(false);
   const [showSOS, setShowSOS] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [notifications, setNotifications] = useState([]);
 
   // New states for AI Prescription
@@ -56,6 +57,24 @@ function App() {
     {},
   );
   const [adherenceLoading, setAdherenceLoading] = useState(false);
+
+  // New states for Employee Portal
+  const [selectedHospital, setSelectedHospital] = useState("HOSP-TN-001");
+  const [hospitalAppointments, setHospitalAppointments] = useState([]);
+  const [appointmentsLoading, setAppointmentsLoading] = useState(false);
+  
+  // Available doctors list for employee portal assignment (fetched from API)
+  const [doctorsList, setDoctorsList] = useState([]);
+  const [doctorsLoading, setDoctorsLoading] = useState(false);
+  
+  // Track emergency tags per appointment manually
+  const [appointmentForms, setAppointmentForms] = useState({});
+
+  // New states for Doctor Portal Queue
+  const [patientQueue, setPatientQueue] = useState([]);
+  const [queueLoading, setQueueLoading] = useState(false);
+  const loggedInDoctorId = "DID-TN-0081"; // Mock logged-in doctor
+
   useEffect(() => {
     // Initial notifications mock
     const t1 = setTimeout(
@@ -369,6 +388,88 @@ function App() {
     setPatientMedicationAdherence({});
   };
 
+  const fetchHospitalAppointments = async (hospitalId) => {
+    if (!hospitalId) return;
+    setAppointmentsLoading(true);
+    try {
+      const res = await fetch(`http://localhost:3001/api/hospital/${hospitalId}/appointments`);
+      const data = await res.json();
+      setHospitalAppointments(data.appointments || []);
+    } catch (err) {
+      console.error("Failed to fetch appointments:", err);
+      addNotification("❌", "Error", "Failed to load hospital appointments");
+    } finally {
+      setAppointmentsLoading(false);
+    }
+  };
+
+  const fetchDoctors = async () => {
+    setDoctorsLoading(true);
+    try {
+      const res = await fetch(`http://localhost:3001/api/doctors`);
+      const data = await res.json();
+      setDoctorsList(data.doctors || []);
+    } catch (err) {
+      console.error("Failed to fetch doctors:", err);
+      // Fallback
+    } finally {
+      setDoctorsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeView === "employee") {
+      fetchHospitalAppointments(selectedHospital);
+      fetchDoctors();
+    } else if (activeView === "doctor") {
+      fetchDoctorQueue();
+    }
+  }, [selectedHospital, activeView]);
+
+  const fetchDoctorQueue = async () => {
+    setQueueLoading(true);
+    try {
+      const res = await fetch(`http://localhost:3001/api/doctor/${loggedInDoctorId}/queue`);
+      const data = await res.json();
+      setPatientQueue(data.queue || []);
+    } catch (err) {
+      console.error("Failed to fetch doctor queue:", err);
+      addNotification("❌", "Error", "Failed to load patient queue");
+    } finally {
+      setQueueLoading(false);
+    }
+  };
+
+  const handleAssignDoctor = async (appointmentId, doctorId, isEmergency = false) => {
+    if (!doctorId) {
+        addNotification("⚠️", "No Doctor Selected", "Please select a doctor to assign.");
+        return;
+    }
+    
+    try {
+      const res = await fetch("http://localhost:3001/api/appointments/assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          hospitalId: selectedHospital,
+          appointmentId,
+          doctorId,
+          isEmergency
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        addNotification("✅", "Assigned", "Patient assigned to doctor successfully.");
+        fetchHospitalAppointments(selectedHospital); // Refresh list
+      } else {
+        addNotification("❌", "Assigned Failed", data.error || "Failed to assign doctor.");
+      }
+    } catch (err) {
+      console.error("Assign doctor failed:", err);
+      addNotification("❌", "Assigned Failed", "Failed to reach backend.");
+    }
+  };
+
   return (
     <>
       <div className="notif-stack" id="notifStack">
@@ -484,13 +585,70 @@ function App() {
           >
             Caregiver Dashboard
           </button>
+          <button
+            className={`nav-tab ${activeView === "employee" ? "active" : ""}`}
+            onClick={() => setActiveView("employee")}
+          >
+            Hospital Employees
+          </button>
         </div>
-        <div className="nav-right">
+        <div className="nav-right" style={{ position: "relative" }}>
           <span className="offline-badge">⚡ Offline Ready</span>
           <button className="sos-btn" onClick={() => setShowSOS(true)}>
             🆘 SOS
           </button>
-          <div className="user-avatar">RK</div>
+          
+          {(() => {
+            const profiles = {
+              "patient": { initials: "RK", name: "Rajan Kumar", role: "Patient", id: "HID-TN-20240847", extra1: "Age: 64 · Blood: O+", extra2: "Conditions: Diabetes, Hypertension" },
+              "doctor": { initials: "SM", name: "Dr. Suresh Mehta", role: "Diabetologist", id: "DID-TN-0081", extra1: "Experience: 15+ Years", extra2: "Status: On-call until 8 PM" },
+              "caregiver": { initials: "AP", name: "Anita Patel", role: "Caregiver", id: "CID-TN-9921", extra1: "Relation: Daughter", extra2: "Primary Caretaker for Rajan K." },
+              "employee": { initials: "HE", name: "Staff Admin", role: "Hospital Employee", id: "EID-HT-1021", extra1: "Facility: Apollo Hospital Chennai", extra2: "Clearance: Level 2 Admin" }
+            };
+            const currentProfile = profiles[activeView] || profiles["patient"];
+            
+            return (
+              <>
+                <div 
+                  className="user-avatar" 
+                  onClick={() => setShowProfile(!showProfile)}
+                  style={{ cursor: "pointer", transition: "all 0.2s", transform: showProfile ? "scale(0.95)" : "scale(1)", boxShadow: showProfile ? "0 0 0 3px rgba(37,99,235,0.3)" : "none" }}
+                >
+                  {currentProfile.initials}
+                </div>
+                
+                {showProfile && (
+                  <div className="profile-modal">
+                    <div className="profile-header">
+                      <div className="profile-avatar-large">{currentProfile.initials}</div>
+                      <div>
+                        <div className="profile-name">{currentProfile.name}</div>
+                        <div className="profile-role">{currentProfile.role}</div>
+                      </div>
+                    </div>
+                    <div className="profile-details">
+                      <div className="profile-detail-item">
+                        <span className="profile-detail-label">System ID</span>
+                        <span className="profile-detail-value" style={{ fontFamily: "monospace", color: "var(--blue)", fontWeight: "700" }}>{currentProfile.id}</span>
+                      </div>
+                      <div className="profile-detail-item">
+                        <span className="profile-detail-label">Details</span>
+                        <span className="profile-detail-value">{currentProfile.extra1}</span>
+                      </div>
+                      <div className="profile-detail-item">
+                        <span className="profile-detail-label">Status / Notes</span>
+                        <span className="profile-detail-value">{currentProfile.extra2}</span>
+                      </div>
+                    </div>
+                    <div className="profile-actions">
+                      <button className="btn btn-secondary" style={{ flex: 1, padding: "8px", fontSize: "13px" }} onClick={() => setShowProfile(false)}>Close Menu</button>
+                      <button className="btn btn-primary" style={{ flex: 1, padding: "8px", fontSize: "13px" }} onClick={() => { setShowProfile(false); addNotification("🔒", "Logged Out", "Secure session ended."); }}>Log Out</button>
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       </nav>
 
@@ -1210,7 +1368,7 @@ function App() {
               <input
                 className="form-input"
                 type="text"
-                value="HID-TN-20240847"
+                defaultValue="HID-TN-20240847"
               />
             </div>
             <div className="form-row">
@@ -1340,6 +1498,45 @@ function App() {
               </div>
             </div>
           </div>
+          
+          <div className="card">
+            <div className="card-title" style={{ color: "var(--teal)" }}>
+              <div className="card-title-icon">👥</div> My Patient Queue
+            </div>
+            {queueLoading ? (
+               <div style={{ textAlign: "center", padding: "20px", color: "var(--text2)" }}>Loading queue...</div>
+            ) : patientQueue.length === 0 ? (
+               <div style={{ textAlign: "center", padding: "20px", color: "var(--text2)" }}>No patients in queue.</div>
+            ) : (
+               <div className="doctor-ids">
+                 {patientQueue.map((patient, index) => (
+                   <div 
+                     key={patient.appointmentId} 
+                     className={`doc-id-row ${patient.isEmergency ? "emergency-row" : ""}`} 
+                     style={{ cursor: "pointer", borderLeft: patient.isEmergency ? "3px solid var(--red)" : index === 0 ? "3px solid var(--teal)" : "3px solid transparent", transition: "all 0.2s", background: patient.isEmergency ? "var(--red-light)" : "" }}
+                     onClick={() => {
+                        setFetchHealthId(patient.patientId);
+                        // Using a timeout allows state to update before fetching
+                        setTimeout(() => {
+                           document.getElementById('fetch-summary-btn').click();
+                        }, 50);
+                     }}
+                     onMouseEnter={(e) => { if (!patient.isEmergency) e.currentTarget.style.background = 'var(--surface2)'; }} 
+                     onMouseLeave={(e) => { if (!patient.isEmergency) e.currentTarget.style.background = 'var(--surface)'; }}
+                   >
+                     <div className="doc-id-avatar" style={{ fontSize: "20px" }}>{patient.isEmergency ? "🚨" : index + 1}</div>
+                     <div className="doc-id-info">
+                       <div className="doc-id-name" style={{ color: patient.isEmergency ? "var(--red)" : "inherit" }}>
+                         {patient.patientName} {patient.isEmergency && <span style={{fontSize: "12px", fontWeight:"bold", color: "var(--red)", marginLeft: "4px", padding: "2px 6px", background: "rgba(220,38,38,0.1)", borderRadius: "4px"}}>EMERGENCY</span>}
+                       </div>
+                       <div className="doc-id-spec">{patient.time} · {patient.reason}</div>
+                     </div>
+                     <div className="doc-id-badge" style={{ color: patient.isEmergency ? "var(--red)" : "var(--blue)" }}>{patient.patientId}</div>
+                   </div>
+                 ))}
+               </div>
+            )}
+          </div>
         </div>
 
         <div className="card span-2">
@@ -1378,6 +1575,7 @@ function App() {
                 onChange={(e) => setFetchHealthId(e.target.value)}
               />
               <button
+                id="fetch-summary-btn"
                 className="btn btn-primary"
                 onClick={handleFetchSummary}
                 disabled={summaryLoading}
@@ -1764,6 +1962,143 @@ function App() {
               Critical data cached locally. SMS alerts queue and send when
               internet restores.
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div
+        id="view-employee"
+        className={`app ${activeView === "employee" ? "active" : ""}`}
+      >
+        <div className="card" style={{ maxWidth: "1000px", margin: "0 auto", width: "100%" }}>
+          <div className="card-title">
+            <div className="card-title-icon">🏥</div> Hospital Portal - Appointment Management
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", marginBottom: "24px" }}>
+            <div className="card" style={{ marginBottom: 0 }}>
+              <div className="card-title" style={{ fontSize: "16px", padding: "12px 16px" }}>
+                <div className="card-title-icon">👨‍⚕️</div> Doctor Directory
+              </div>
+              <div className="doctor-ids" style={{ maxHeight: "250px", overflowY: "auto" }}>
+                {doctorsLoading ? (
+                  <div style={{ textAlign: "center", padding: "20px", color: "var(--text2)" }}>Loading directory...</div>
+                ) : (
+                  doctorsList.map(doc => (
+                    <div key={doc.id} className="doc-id-row">
+                      <div className="doc-id-avatar">{doc.avatar || "👨‍⚕️"}</div>
+                      <div className="doc-id-info">
+                        <div className="doc-id-name">{doc.name}</div>
+                        <div className="doc-id-spec">{doc.specialty} · {doc.experience}</div>
+                      </div>
+                      <div className="doc-id-badge" style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                        <span style={{ fontSize: "11px", color: "var(--text2)" }}>Queue</span>
+                        <span style={{ fontSize: "16px", color: doc.activeQueueLength > 3 ? "var(--red)" : "var(--teal)" }}>{doc.activeQueueLength}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div>
+              <div className="hospital-select-container" style={{ margin: 0, height: "100%", flexDirection: "column", alignItems: "flex-start", justifyContent: "center", padding: "30px" }}>
+                <span className="hospital-select-label" style={{ fontSize: "18px", marginBottom: "16px" }}>🏥 Select Hospital Facility:</span>
+                <select 
+                  className="select-doctor" 
+                  style={{ width: "100%", maxWidth: "100%", fontSize: "16px", padding: "14px", margin: 0 }}
+                  value={selectedHospital}
+                  onChange={(e) => setSelectedHospital(e.target.value)}
+                >
+                  <option value="HOSP-TN-001">Apollo Hospital Chennai (HOSP-TN-001)</option>
+                  <option value="HOSP-TN-044">Ambattur PHC (HOSP-TN-044)</option>
+                </select>
+                <div style={{ marginTop: "16px", color: "var(--text2)", fontSize: "13px", lineHeight: "1.5" }}>
+                  Select a facility to view incoming patient appointments and route them accurately to the appropriate medical professionals.
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div className="appointment-list">
+          </div>
+
+          <div className="appointment-list">
+             {appointmentsLoading ? (
+               <div style={{ textAlign: "center", padding: "30px", color: "var(--text2)" }}>Loading appointments...</div>
+             ) : hospitalAppointments.length === 0 ? (
+               <div style={{ textAlign: "center", padding: "30px", color: "var(--text2)" }}>No appointments scheduled for this hospital.</div>
+             ) : (
+               <div className="appointment-grid">
+                   {hospitalAppointments.map((apt) => (
+                     <div key={apt.id} className="appointment-card">
+                       <div className="appointment-header">
+                         <div className="appointment-time">
+                           <span style={{fontSize: "20px"}}>🕒</span> {apt.time}
+                         </div>
+                         <div className={`appointment-status ${apt.status === 'Assigned' ? 'assigned' : 'pending'}`}>
+                           {apt.status}
+                         </div>
+                       </div>
+                       
+                       <div className="appointment-body">
+                         <div>
+                           <div className="appointment-patient">{apt.patientName}</div>
+                           <div className="appointment-hid">{apt.patientId}</div>
+                         </div>
+                         
+                         <div className="appointment-reason">
+                           <span style={{fontSize: "16px"}}>📋</span>
+                           <span>{apt.reason}</span>
+                         </div>
+                       </div>
+                       
+                       <div className="appointment-actions">
+                         <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "4px" }}>
+                           <input 
+                             type="checkbox" 
+                             id={`emergency-${apt.id}`} 
+                             checked={appointmentForms[apt.id]?.isEmergency || false}
+                             onChange={(e) => setAppointmentForms(prev => ({
+                               ...prev,
+                               [apt.id]: { ...prev[apt.id], isEmergency: e.target.checked }
+                             }))}
+                             disabled={apt.status === 'Assigned'}
+                             style={{ width: "16px", height: "16px", accentColor: "var(--red)", cursor: "pointer" }}
+                           />
+                           <label htmlFor={`emergency-${apt.id}`} style={{ fontSize: "13px", fontWeight: "600", color: "var(--red)", cursor: "pointer" }}>🚨 Mark as Emergency</label>
+                         </div>
+                         <select 
+                           className="select-doctor" 
+                           defaultValue={apt.doctorAssigned || ""}
+                           id={`assign-doctor-${apt.id}`}
+                           disabled={apt.status === 'Assigned'}
+                         >
+                           <option value="" disabled>Select Doctor to Assign...</option>
+                           {doctorsList.map(doc => (
+                             <option key={doc.id} value={doc.id}>
+                               {doc.name} (Queue: {doc.activeQueueLength})
+                             </option>
+                           ))}
+                         </select>
+                         
+                         <button 
+                           className={`btn ${apt.status === 'Assigned' ? 'btn-secondary' : appointmentForms[apt.id]?.isEmergency ? 'btn-red' : 'btn-primary'}`}
+                           style={{ padding: "12px", fontSize: "14px", fontWeight: "700" }}
+                           disabled={apt.status === 'Assigned'}
+                           onClick={() => {
+                             const selectEl = document.getElementById(`assign-doctor-${apt.id}`);
+                             const isEmergency = appointmentForms[apt.id]?.isEmergency || false;
+                             handleAssignDoctor(apt.id, selectEl.value, isEmergency);
+                           }}
+                         >
+                           {apt.status === 'Assigned' ? '✓ Assigned Securely' : appointmentForms[apt.id]?.isEmergency ? '🚨 Assign Emergency' : 'Assign Patient to Doctor'}
+                         </button>
+                       </div>
+                     </div>
+                   ))}
+               </div>
+             )}
           </div>
         </div>
       </div>
