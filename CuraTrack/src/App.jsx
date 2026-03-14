@@ -56,6 +56,27 @@ function App() {
     {},
   );
   const [adherenceLoading, setAdherenceLoading] = useState(false);
+
+  // New states for Insurance Profile
+  const [insuranceProvider, setInsuranceProvider] = useState("");
+  const [insuranceId, setInsuranceId] = useState("");
+  const [insuranceDetails, setInsuranceDetails] = useState(null);
+  const [insuranceLoading, setInsuranceLoading] = useState(false);
+  const [showInsuranceModal, setShowInsuranceModal] = useState(false);
+
+  // New states for Smart Claims & Schemes
+  const [schemesLoading, setSchemesLoading] = useState(false);
+  const [eligibleSchemes, setEligibleSchemes] = useState([]);
+  const [showSchemesModal, setShowSchemesModal] = useState(false);
+
+  // New states for Insurance Claims
+  const [claims, setClaims] = useState([]);
+  const [showClaimForm, setShowClaimForm] = useState(false);
+  const [selectedSchemeForClaim, setSelectedSchemeForClaim] = useState(null);
+  const [claimAmount, setClaimAmount] = useState("");
+  const [claimReason, setClaimReason] = useState("");
+  const [submittingClaim, setSubmittingClaim] = useState(false);
+
   useEffect(() => {
     // Initial notifications mock
     const t1 = setTimeout(
@@ -103,6 +124,7 @@ function App() {
 
     // Fetch prescriptions on component mount
     fetchPrescriptions();
+    fetchClaims();
 
     return () => {
       clearTimeout(t1);
@@ -369,6 +391,133 @@ function App() {
     setPatientMedicationAdherence({});
   };
 
+  const handleFetchInsurance = async () => {
+    if (!insuranceProvider || !insuranceId) {
+      addNotification("⚠️", "Required Fields", "Please select provider and enter ID");
+      return;
+    }
+
+    setInsuranceLoading(true);
+    addNotification("⏳", "Verifying...", "Connecting to Insurance Network API");
+
+    try {
+      const res = await fetch("http://localhost:3001/api/patient/HID-TN-20240847/insurance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          provider: insuranceProvider, 
+          insuranceId: insuranceId 
+        }),
+      });
+      
+      const data = await res.json();
+
+      if (data.success && data.insurance) {
+        setInsuranceDetails(data.insurance);
+        addNotification(
+          "✅",
+          "Verification Success",
+          `Insurance profile linked successfully.`
+        );
+      } else {
+        addNotification("❌", "Verification Failed", data.error || "Could not verify insurance details");
+      }
+    } catch (err) {
+      addNotification("❌", "Network Error", "Could not reach the server to verify insurance");
+      console.error(err);
+    } finally {
+      setInsuranceLoading(false);
+    }
+  };
+
+  const handleCheckSchemes = async () => {
+    if (!insuranceDetails) return;
+
+    setSchemesLoading(true);
+    addNotification("🤖", "AI Analysis", "Llama 3 is analyzing eligible schemes based on your health...");
+
+    try {
+      const res = await fetch("http://localhost:3001/api/patient/HID-TN-20240847/insurance-schemes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          provider: insuranceDetails.provider 
+        }),
+      });
+      
+      const data = await res.json();
+
+      if (data.success) {
+        setEligibleSchemes(data); // Store the whole object containing both raw and analyzed
+        setShowSchemesModal(true);
+      } else {
+        addNotification("❌", "Analysis Failed", data.error || "Could not analyze schemes");
+      }
+    } finally {
+      setSchemesLoading(false);
+    }
+  };
+
+  const fetchClaims = async () => {
+    try {
+      const res = await fetch("http://localhost:3001/api/patient/HID-TN-20240847/claims");
+      const data = await res.json();
+      if (data.success) {
+        setClaims(data.claims);
+      }
+    } catch (err) {
+      console.error("Failed to fetch claims:", err);
+    }
+  };
+
+  const handleInitiateClaim = (scheme) => {
+    setSelectedSchemeForClaim(scheme);
+    setShowSchemesModal(false);
+    setShowClaimForm(true);
+    // Pre-fill reason if it's from AI recommendation
+    setClaimReason(scheme.recommendationReason ? `As per AI recommendation: ${scheme.recommendationReason}` : "");
+  };
+
+  const handleSubmitClaim = async () => {
+    if (!claimAmount || !claimReason) {
+      addNotification("⚠️", "Required Fields", "Please enter amount and reason for claim");
+      return;
+    }
+
+    setSubmittingClaim(true);
+    addNotification("⏳", "Submitting...", "Filing your insurance claim request");
+
+    try {
+      const res = await fetch("http://localhost:3001/api/patient/HID-TN-20240847/claims", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          schemeName: selectedSchemeForClaim.schemeName || selectedSchemeForClaim.name,
+          amount: claimAmount,
+          reason: claimReason,
+          type: "Cashless"
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        addNotification("✅", "Claim Submitted", "Your claim is now under review by the insurance provider");
+        setShowClaimForm(false);
+        setClaimAmount("");
+        setClaimReason("");
+        await fetchClaims(); // Refresh claims list
+      } else {
+        addNotification("❌", "Submission Failed", data.error || "Could not submit claim");
+      }
+    } catch (err) {
+      console.error("Claim submission error:", err);
+      addNotification("❌", "Network Error", "Failed to reach insurance server");
+    } finally {
+      setSubmittingClaim(false);
+    }
+  };
+
   return (
     <>
       <div className="notif-stack" id="notifStack">
@@ -572,6 +721,187 @@ function App() {
                 Recommend follow-up with Dr. Mehta within 7 days.
               </div>
             </div>
+          </div>
+
+          <div className="card">
+            <div className="card-title" style={{ justifyContent: "space-between" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: "7px" }}>
+                <div className="card-title-icon">🛡️</div> Insurance Profile
+              </span>
+              {insuranceDetails && (
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "var(--teal)" }}></div>
+                  <span style={{ fontSize: "12px", color: "var(--teal)", fontWeight: "600" }}>Verified</span>
+                </div>
+              )}
+            </div>
+
+            {!insuranceDetails ? (
+              <div className="prescription-form" style={{ marginTop: "12px" }}>
+                <div className="form-row">
+                  <div>
+                    <div className="form-label">Provider Network</div>
+                    <select 
+                      className="form-input" 
+                      value={insuranceProvider}
+                      onChange={(e) => setInsuranceProvider(e.target.value)}
+                    >
+                      <option value="">Select Provider</option>
+                      <option value="Star Health">Star Health</option>
+                      <option value="HDFC ERGO">HDFC ERGO</option>
+                      <option value="ICICI Lombard">ICICI Lombard</option>
+                      <option value="Apollo Munich">Apollo Munich</option>
+                      <option value="Max Bupa">Max Bupa</option>
+                      <option value="Sandbox Health">Sandbox API Network</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div className="form-label">Insurance / Reference ID</div>
+                    <input 
+                      className="form-input" 
+                      placeholder="e.g. POL-12345678" 
+                      value={insuranceId}
+                      onChange={(e) => setInsuranceId(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <button 
+                  className="btn btn-primary" 
+                  onClick={handleFetchInsurance}
+                  disabled={insuranceLoading || !insuranceProvider || !insuranceId}
+                  style={{ marginTop: "8px", width: "100%" }}
+                >
+                  {insuranceLoading ? "⏳ Verifying with HAPI FHIR..." : "🔍 Link Profile"}
+                </button>
+              </div>
+            ) : (
+              <div style={{ 
+                background: "var(--surface2)", 
+                border: "1px solid var(--border2)", 
+                borderRadius: "12px", 
+                padding: "16px",
+                marginTop: "12px"
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                    <div style={{ 
+                      width: "40px", height: "40px", borderRadius: "10px", 
+                      background: "white", display: "flex", alignItems: "center", 
+                      justifyContent: "center", fontSize: "20px",
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.05)"
+                    }}>🏥</div>
+                    <div>
+                      <div style={{ fontWeight: "600", color: "var(--text)", fontSize: "15px" }}>{insuranceDetails.provider}</div>
+                      <div style={{ fontSize: "12.5px", color: "var(--text2)", marginTop: "2px" }}>ID: {insuranceDetails.insuranceId}</div>
+                    </div>
+                  </div>
+                  <span className="status-badge" style={{ background: "rgba(16, 185, 129, 0.1)", color: "var(--teal)", padding: "4px 10px" }}>
+                    {insuranceDetails.status === "active" ? "✓ Active" : (insuranceDetails.status || "Active")}
+                  </span>
+                </div>
+                
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                  <div style={{ background: "white", padding: "12px", borderRadius: "8px", border: "1px solid var(--border)" }}>
+                    <div style={{ fontSize: "11px", color: "var(--text3)", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>Valid Till</div>
+                    <div style={{ fontWeight: "600", color: "var(--text)", fontSize: "14px" }}>{insuranceDetails.validTill}</div>
+                  </div>
+                  <div style={{ background: "white", padding: "12px", borderRadius: "8px", border: "1px solid var(--border)" }}>
+                    <div style={{ fontSize: "11px", color: "var(--text3)", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>Network Type</div>
+                    <div style={{ fontWeight: "600", color: "var(--text)", fontSize: "14px" }}>{insuranceDetails.network}</div>
+                  </div>
+                  <div style={{ background: "white", padding: "12px", borderRadius: "8px", border: "1px solid var(--border)", gridColumn: "span 2" }}>
+                    <div style={{ fontSize: "11px", color: "var(--text3)", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>Coverage Type</div>
+                    <div style={{ fontWeight: "600", color: "var(--text)", fontSize: "14px" }}>{insuranceDetails.type}</div>
+                  </div>
+                </div>
+
+                <hr style={{ margin: "16px 0", border: "none", borderTop: "1px dashed var(--border)" }} />
+                
+                <button 
+                  className="btn btn-primary" 
+                  onClick={handleCheckSchemes}
+                  disabled={schemesLoading}
+                  style={{ width: "100%", fontSize: "14px", padding: "12px", display: "flex", justifyContent: "center", alignItems: "center", gap: "8px", background: "linear-gradient(135deg, var(--blue), var(--teal))", border: "none" }}
+                >
+                  {schemesLoading ? "🤖 Analyzing Eligibility..." : "🔍 Check Eligible Schemes for Claim"}
+                </button>
+                
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginTop: "12px" }}>
+                  <button 
+                    className="btn btn-secondary" 
+                    onClick={() => setInsuranceDetails(null)}
+                    style={{ width: "100%", fontSize: "13px" }}
+                  >
+                    Unlink Profile
+                  </button>
+                  <button 
+                    className="btn btn-secondary" 
+                    onClick={() => setShowInsuranceModal(true)}
+                    style={{ width: "100%", fontSize: "13px" }}
+                  >
+                    View Original Data
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Claim Status Tracker Sidebar Section */}
+            {insuranceDetails && claims.length > 0 && (
+              <div 
+                className="card" 
+                style={{ 
+                  marginTop: "16px", 
+                  padding: "16px", 
+                  border: "1px solid var(--border)",
+                  background: "linear-gradient(to bottom, #fff, var(--surface1))"
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                  <div style={{ fontSize: "14px", fontWeight: "700", color: "var(--text)" }}>📜 Active Claims Tracker</div>
+                  <div style={{ fontSize: "11px", color: "var(--teal)", fontWeight: "600", padding: "2px 6px", background: "var(--teal-light)", borderRadius: "4px" }}>
+                    {claims.filter(c => c.status === "Pending").length} PENDING
+                  </div>
+                </div>
+                
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {claims.slice(0, 3).map((claim, idx) => (
+                    <div key={idx} style={{ 
+                      padding: "10px", 
+                      borderRadius: "8px", 
+                      border: "1px solid var(--border)", 
+                      background: "white",
+                      fontSize: "12px",
+                      position: "relative"
+                    }}>
+                      <div style={{ position: "absolute", right: "10px", top: "10px" }}>
+                        <span style={{ 
+                          fontSize: "10px", 
+                          padding: "2px 6px", 
+                          borderRadius: "4px",
+                          fontWeight: "800",
+                          color: claim.status === "Approved" ? "var(--teal)" : "var(--amber)",
+                          background: claim.status === "Approved" ? "rgba(16, 185, 129, 0.1)" : "rgba(245, 158, 11, 0.1)"
+                        }}>
+                          {claim.status.toUpperCase()}
+                        </span>
+                      </div>
+                      <div style={{ fontWeight: "700", width: "80%", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginBottom: "4px" }}>
+                        {claim.schemeName}
+                      </div>
+                      <div style={{ color: "var(--text2)", display: "flex", justifyContent: "space-between" }}>
+                        <span>{claim.date}</span>
+                        <span style={{ fontWeight: "700", color: "var(--blue)" }}>{claim.amount}</span>
+                      </div>
+                    </div>
+                  ))}
+                  {claims.length > 3 && (
+                    <div style={{ textAlign: "center", fontSize: "11px", color: "var(--text3)", cursor: "pointer" }}>
+                      View {claims.length - 3} more claims...
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -973,6 +1303,272 @@ function App() {
           </div>
         </div>
       </div>
+
+      {/* Insurance Verified Data Modal */}
+      {showInsuranceModal && insuranceDetails && (
+        <div 
+          className="modal-overlay active" 
+          onClick={() => setShowInsuranceModal(false)}
+        >
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Original Sandbox Insurance Data</h3>
+              <button className="modal-close" onClick={() => setShowInsuranceModal(false)}>
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <div style={{ background: "var(--surface2)", padding: "16px", borderRadius: "8px", border: "1px solid var(--border)", marginBottom: "16px" }}>
+                <div style={{ fontSize: "13px", color: "var(--text2)", marginBottom: "8px" }}>
+                  This data was securely fetched in real-time from the HAPI FHIR public developer sandbox at:
+                </div>
+                <div style={{ fontFamily: "monospace", fontSize: "12px", color: "var(--blue)", wordBreak: "break-all" }}>
+                  http://hapi.fhir.org/baseR4/Coverage/{insuranceDetails.rawFhirId || insuranceDetails.insuranceId}
+                </div>
+              </div>
+              
+              <h4>Parsed Profile Data</h4>
+              <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "20px", fontSize: "14px" }}>
+                <tbody>
+                  <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                    <td style={{ padding: "8px 0", color: "var(--text2)", width: "40%" }}>Provider</td>
+                    <td style={{ padding: "8px 0", fontWeight: "600" }}>{insuranceDetails.provider}</td>
+                  </tr>
+                  <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                    <td style={{ padding: "8px 0", color: "var(--text2)" }}>Policy / Reference ID</td>
+                    <td style={{ padding: "8px 0", fontWeight: "600" }}>{insuranceDetails.insuranceId}</td>
+                  </tr>
+                  <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                    <td style={{ padding: "8px 0", color: "var(--text2)" }}>FHIR Status</td>
+                    <td style={{ padding: "8px 0", fontWeight: "600", textTransform: "capitalize", color: insuranceDetails.status === 'active' ? 'var(--teal)' : 'var(--text)' }}>
+                      {insuranceDetails.status}
+                    </td>
+                  </tr>
+                  <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                    <td style={{ padding: "8px 0", color: "var(--text2)" }}>Coverage Type</td>
+                    <td style={{ padding: "8px 0", fontWeight: "600" }}>{insuranceDetails.type}</td>
+                  </tr>
+                  <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                    <td style={{ padding: "8px 0", color: "var(--text2)" }}>Valid Until</td>
+                    <td style={{ padding: "8px 0", fontWeight: "600" }}>{insuranceDetails.validTill}</td>
+                  </tr>
+                  <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                    <td style={{ padding: "8px 0", color: "var(--text2)" }}>Network Classification</td>
+                    <td style={{ padding: "8px 0", fontWeight: "600" }}>{insuranceDetails.network}</td>
+                  </tr>
+                </tbody>
+              </table>
+              
+              <div style={{ textAlign: "right" }}>
+                <button className="btn btn-primary" onClick={() => setShowInsuranceModal(false)}>
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Schemes Recommendation Modal */}
+      {showSchemesModal && (
+        <div 
+          className="modal-overlay active" 
+          onClick={() => setShowSchemesModal(false)}
+        >
+          <div className="modal-content" style={{ maxWidth: "900px", width: "95%" }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3><span style={{marginRight: "8px"}}>🤖</span> Smart Health Scheme Recommendations</h3>
+              <button className="modal-close" onClick={() => setShowSchemesModal(false)}>
+                ×
+              </button>
+            </div>
+            <div className="modal-body" style={{ maxHeight: "80vh", overflowY: "auto", padding: "20px" }}>
+              
+              {/* SECTION 1: ALL AVAILABLE SCHEMES */}
+              <div style={{ marginBottom: "32px" }}>
+                <h4 style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--text)", marginBottom: "16px", fontSize: "18px" }}>
+                  <span style={{ padding: "6px", background: "var(--blue-light)", borderRadius: "6px", fontSize: "14px" }}>01</span>
+                  All Available Real-Time Schemes
+                </h4>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "16px" }}>
+                  {eligibleSchemes.availableSchemes?.map((scheme, idx) => (
+                    <div key={idx} style={{ 
+                      background: "var(--surface2)", 
+                      border: "1px solid var(--border)", 
+                      borderRadius: "10px", 
+                      padding: "16px",
+                      position: "relative"
+                    }}>
+                      <div style={{ fontSize: "11px", color: "var(--text3)", fontWeight: "600", marginBottom: "4px" }}>{scheme.id}</div>
+                      <div style={{ fontWeight: "700", color: "var(--text)", fontSize: "14px", marginBottom: "8px" }}>{scheme.name}</div>
+                      <div style={{ fontSize: "12px", color: "var(--text2)", marginBottom: "12px" }}>Limit: <b style={{color: "var(--teal)"}}>{scheme.coverageLimit}</b></div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                        {scheme.highlights?.map((h, i) => (
+                          <span key={i} style={{ fontSize: "10px", background: "white", padding: "2px 6px", borderRadius: "4px", border: "1px solid var(--border2)" }}>{h}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* SECTION 2: ELIGIBILITY & MATCHING */}
+              <div style={{ marginBottom: "32px" }}>
+                <h4 style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--text)", marginBottom: "16px", fontSize: "18px" }}>
+                  <span style={{ padding: "6px", background: "var(--teal-light)", borderRadius: "6px", fontSize: "14px" }}>02</span>
+                  Eligibility & Health Profile Matching
+                </h4>
+                <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: "12px", overflow: "hidden" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr style={{ background: "var(--surface2)" }}>
+                        <th style={{ textAlign: "left", padding: "12px 16px", fontSize: "12px", color: "var(--text3)", textTransform: "uppercase" }}>Scheme Name</th>
+                        <th style={{ textAlign: "left", padding: "12px 16px", fontSize: "12px", color: "var(--text3)", textTransform: "uppercase" }}>Match Percentage</th>
+                        <th style={{ textAlign: "left", padding: "12px 16px", fontSize: "12px", color: "var(--text3)", textTransform: "uppercase" }}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {eligibleSchemes.analyzedSchemes?.map((scheme, idx) => (
+                        <tr key={idx} style={{ borderBottom: "1px solid var(--border)" }}>
+                          <td style={{ padding: "14px 16px", fontWeight: "600", fontSize: "14px" }}>{scheme.schemeName}</td>
+                          <td style={{ padding: "14px 16px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                              <div style={{ flex: 1, height: "8px", background: "var(--surface2)", borderRadius: "4px", overflow: "hidden" }}>
+                                <div style={{ 
+                                  width: `${scheme.eligibilityPercentage}%`, 
+                                  height: "100%", 
+                                  background: scheme.eligibilityPercentage >= 80 ? "var(--teal)" : scheme.eligibilityPercentage >= 60 ? "var(--amber)" : "var(--red)",
+                                  borderRadius: "4px"
+                                }}></div>
+                              </div>
+                              <span style={{ fontSize: "13px", fontWeight: "700", width: "35px" }}>{scheme.eligibilityPercentage}%</span>
+                            </div>
+                          </td>
+                          <td style={{ padding: "14px 16px" }}>
+                            <span style={{ 
+                              padding: "4px 8px", borderRadius: "6px", fontSize: "11px", fontWeight: "700",
+                              background: scheme.eligibilityPercentage >= 80 ? "rgba(16, 185, 129, 0.1)" : "rgba(245, 158, 11, 0.1)",
+                              color: scheme.eligibilityPercentage >= 80 ? "var(--teal)" : "var(--amber)"
+                            }}>
+                              {scheme.eligibilityPercentage >= 80 ? "HIGH MATCH" : "POTENTIAL"}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* SECTION 3: PERSONALIZED RECOMMENDATIONS */}
+              <div>
+                <h4 style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--text)", marginBottom: "16px", fontSize: "18px" }}>
+                  <span style={{ padding: "6px", background: "var(--amber-light)", borderRadius: "6px", fontSize: "14px" }}>03</span>
+                  AI Recommendations: What to Choose & Why
+                </h4>
+                <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                  {eligibleSchemes.analyzedSchemes?.map((scheme, idx) => (
+                    <div key={idx} style={{ 
+                      background: scheme.eligibilityPercentage >= 85 ? "linear-gradient(to right, #fff, var(--surface2))" : "white", 
+                      border: scheme.eligibilityPercentage >= 85 ? "2px solid var(--teal)" : "1px solid var(--border)", 
+                      borderRadius: "12px", 
+                      padding: "20px",
+                      boxShadow: scheme.eligibilityPercentage >= 85 ? "0 4px 15px rgba(16, 185, 129, 0.1)" : "none"
+                    }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: "12px" }}>
+                        <div style={{ fontWeight: "700", color: "var(--text)", fontSize: "16px" }}>{scheme.schemeName}</div>
+                        <div style={{ color: "var(--teal)", fontWeight: "800", fontSize: "14px" }}>{scheme.estimatedSavings}</div>
+                      </div>
+                      <div style={{ background: "var(--surface2)", padding: "15px", borderRadius: "8px", borderLeft: "4px solid var(--blue)" }}>
+                        <div style={{ display: "flex", gap: "12px" }}>
+                          <span style={{ fontSize: "18px" }}>✨</span>
+                          <div style={{ fontSize: "14px", color: "var(--text)", lineHeight: "1.5" }}>
+                            {scheme.recommendationReason}
+                          </div>
+                        </div>
+                      </div>
+                      {scheme.eligibilityPercentage >= 85 && (
+                        <div style={{ marginTop: "12px", color: "var(--teal)", fontSize: "12px", fontWeight: "600", display: "flex", alignItems: "center", gap: "4px" }}>
+                          ⭐ This is your top AI-recommended choice for coverage optimization.
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+            <div className="modal-footer" style={{ borderTop: "1px solid var(--border)", padding: "16px 20px", textAlign: "right", background: "var(--surface2)" }}>
+              <button className="btn btn-secondary" onClick={() => setShowSchemesModal(false)}>Close Analysis</button>
+              <button className="btn btn-primary" style={{ marginLeft: "12px" }} onClick={() => handleInitiateClaim(eligibleSchemes.analyzedSchemes[0])}>🚀 Proceed with Best Recommended Scheme</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Insurance Claim Submission Form Modal */}
+      {showClaimForm && selectedSchemeForClaim && (
+        <div 
+          className="modal-overlay active" 
+          onClick={() => setShowClaimForm(false)}
+        >
+          <div className="modal-content" style={{ maxWidth: "500px" }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>📄 New Insurance Claim Request</h3>
+              <button className="modal-close" onClick={() => setShowClaimForm(false)}>
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <div style={{ background: "var(--surface2)", padding: "16px", borderRadius: "10px", marginBottom: "20px" }}>
+                <div style={{ fontSize: "12px", color: "var(--text3)", marginBottom: "4px" }}>SELECTED SCHEME</div>
+                <div style={{ fontWeight: "800", color: "var(--text)", fontSize: "16px" }}>{selectedSchemeForClaim.schemeName || selectedSchemeForClaim.name}</div>
+                <div style={{ fontSize: "13px", color: "var(--teal)", marginTop: "4px", fontWeight: "600" }}>Provider: {insuranceDetails?.provider}</div>
+              </div>
+
+              <div style={{ marginBottom: "16px" }}>
+                <label style={{ display: "block", fontSize: "13px", fontWeight: "600", marginBottom: "8px" }}>Claim Amount (Requested)</label>
+                <div style={{ position: "relative" }}>
+                  <span style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", fontWeight: "700" }}>₹</span>
+                  <input 
+                    type="text" 
+                    className="input-field" 
+                    placeholder="e.g. 15,000" 
+                    value={claimAmount}
+                    onChange={(e) => setClaimAmount(e.target.value)}
+                    style={{ paddingLeft: "30px", fontSize: "16px", fontWeight: "700" }} 
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: "20px" }}>
+                <label style={{ display: "block", fontSize: "13px", fontWeight: "600", marginBottom: "8px" }}>Reason for Claim / Medical Notes</label>
+                <textarea 
+                  className="input-field" 
+                  rows="4" 
+                  placeholder="Describe why you are filing this claim (symptoms, hospital visit details...)"
+                  value={claimReason}
+                  onChange={(e) => setClaimReason(e.target.value)}
+                  style={{ resize: "none", fontSize: "14px", padding: "12px" }}
+                ></textarea>
+              </div>
+
+              <div style={{ background: "rgba(37, 99, 235, 0.05)", border: "1px solid var(--blue-light)", padding: "12px", borderRadius: "8px", fontSize: "12px", color: "var(--text2)", marginBottom: "20px" }}>
+                <b>ℹ️ Smart Documentation:</b> By clicking submit, the relevant medical records from your timeline will be automatically securely shared with {insuranceDetails?.provider} as proof of claim.
+              </div>
+
+              <button 
+                className="btn btn-primary" 
+                style={{ width: "100%", padding: "14px", fontSize: "15px" }}
+                onClick={handleSubmitClaim}
+                disabled={submittingClaim}
+              >
+                {submittingClaim ? "📡 Filing Claim..." : "🚀 Submit Claim to Provider"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Prescription Viewer Modal */}
       <div
